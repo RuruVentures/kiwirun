@@ -92,6 +92,8 @@ export class RunScene extends Phaser.Scene {
   private exploded = false;
   private deathSeq = 0;
   private canRestartAt = 0;
+  private diedAt = 0;
+  private panelEmitted = false;
   private deathPayload?: { score: number; best: number; record: boolean; killer: Killer };
   private ducking = false;
   private sliding = false;
@@ -334,7 +336,8 @@ export class RunScene extends Phaser.Scene {
 
     if (this.phase === "dead") {
       if (!this.exploded) {
-        this.vy += GRAVITY * dt;
+        // extra gravity keeps the death hop snappy
+        this.vy += GRAVITY * 1.8 * dt;
         this.player.y += this.vy * dt;
         // the spinning kiwi hits the dirt — KAWUMM from right there
         if (this.vy > 0 && this.player.y >= this.gy(PLAYER_X) + 4) {
@@ -605,8 +608,15 @@ export class RunScene extends Phaser.Scene {
       return;
     }
     if (this.phase === "dead") {
-      // wait for the full death show + panel before allowing a restart
-      if (this.time.now > this.canRestartAt) this.resetRun();
+      // pros can skip the show: first press fast-forwards to the panel,
+      // the next one restarts
+      if (this.time.now > this.canRestartAt) {
+        this.resetRun();
+      } else if (!this.panelEmitted && this.time.now > this.diedAt + 350) {
+        if (!this.exploded) this.explodeKiwi();
+        this.emitDeadPanel();
+        this.canRestartAt = this.time.now + 250;
+      }
       return;
     }
 
@@ -738,6 +748,8 @@ export class RunScene extends Phaser.Scene {
     this.phase = "dead";
     this.deathSeq++;
     this.exploded = false;
+    this.panelEmitted = false;
+    this.diedAt = this.time.now;
     this.canRestartAt = Number.MAX_SAFE_INTEGER;
 
     this.nextSpawn?.remove(false);
@@ -772,25 +784,25 @@ export class RunScene extends Phaser.Scene {
     cam.pan(this.scale.width / 2, py, 320, "Sine.easeOut");
     cam.zoomTo(1.4, 320, "Sine.easeOut");
 
-    // 3. impact poof, then the kiwi spins up into the air…
-    this.feathers.explode(14, px, py);
+    // 3. impact poof, then a short snappy spin-hop…
+    this.feathers.explode(12, px, py);
     this.dust.explode(8, px, this.player.y - 4);
     this.setPlayerTexture("kiwi_jump");
     this.player.setFlipY(true);
     this.grounded = false;
-    this.vy = -620;
-    this.tweens.add({ targets: this.player, angle: 1440, duration: 1500 });
+    this.vy = -420;
+    this.tweens.add({ targets: this.player, angle: 900, duration: 650 });
     this.tweens.add({
       targets: this.player,
-      scaleX: 1.5,
-      scaleY: 1.5,
-      duration: 900,
+      scaleX: 1.35,
+      scaleY: 1.35,
+      duration: 450,
       ease: "quad.out",
     });
-    // …and comes crashing down — the update loop triggers explodeKiwi()
-    // on landing. Safety net in case something goes sideways:
+    // …and it crashes right back down — the update loop triggers
+    // explodeKiwi() on landing. Safety net in case something goes sideways:
     const seq = this.deathSeq;
-    this.time.delayedCall(2600, () => {
+    this.time.delayedCall(1400, () => {
       if (this.phase === "dead" && seq === this.deathSeq && !this.exploded) {
         this.explodeKiwi();
       }
@@ -862,8 +874,8 @@ export class RunScene extends Phaser.Scene {
         targets: ring,
         radius: 420 + i * 160,
         alpha: 0,
-        delay: i * 110,
-        duration: 650,
+        delay: i * 80,
+        duration: 480,
         ease: "quad.out",
         onComplete: () => ring.destroy(),
       });
@@ -871,27 +883,70 @@ export class RunScene extends Phaser.Scene {
 
     this.showComicBurst(px, py - 30, "KAWUMM!", 2.3);
 
-    // camera: big shake and pull back out to show the whole blast
-    cam.shake(420, 0.016);
-    cam.pan(w / 2, h / 2, 450, "Sine.easeInOut");
-    cam.zoomTo(1, 450, "Sine.easeInOut");
+    // a cheeky kiwi ghost floats out of the feather cloud — he's fine!
+    const ghost = this.add
+      .sprite(px, py + 10, "kiwi_jump")
+      .setOrigin(0.5, 1)
+      .setDepth(24)
+      .setAlpha(0)
+      .setTintFill(0xdff1ff);
+    this.tweens.add({ targets: ghost, alpha: 0.85, duration: 250, delay: 150 });
+    this.tweens.add({
+      targets: ghost,
+      y: py - 190,
+      duration: 1400,
+      ease: "sine.out",
+    });
+    this.tweens.add({
+      targets: ghost,
+      x: px + 14,
+      duration: 300,
+      yoyo: true,
+      repeat: 4,
+      ease: "sine.inout",
+    });
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      delay: 900,
+      duration: 500,
+      onComplete: () => ghost.destroy(),
+    });
 
-    // panel + restart only after the show is over
+    // camera: big shake and pull back out to show the whole blast
+    cam.shake(320, 0.014);
+    cam.pan(w / 2, h / 2, 350, "Sine.easeInOut");
+    cam.zoomTo(1, 350, "Sine.easeInOut");
+
+    // panel + restart follow quickly — pros want to get back in
     if (this.deathPayload?.record) {
-      this.time.delayedCall(1100, () => sfx.record());
+      this.time.delayedCall(700, () => sfx.record());
     }
-    this.canRestartAt = this.time.now + 1900;
-    this.time.delayedCall(1500, () => {
-      if (this.phase === "dead" && seq === this.deathSeq && this.deathPayload) {
-        this.game.events.emit("dead", this.deathPayload);
+    this.canRestartAt = this.time.now + 1000;
+    this.time.delayedCall(800, () => {
+      if (this.phase === "dead" && seq === this.deathSeq) {
+        this.emitDeadPanel();
       }
     });
   }
 
+  /** Show the game-over panel (once per death). */
+  private emitDeadPanel() {
+    if (this.panelEmitted || this.phase !== "dead" || !this.deathPayload) return;
+    this.panelEmitted = true;
+    this.game.events.emit("dead", this.deathPayload);
+  }
+
   private showComicBurst(x: number, y: number, forcedWord?: string, size = 1.5) {
-    // keep the word fully on screen even when the crash is near an edge
-    x = Phaser.Math.Clamp(x, 100 * size, this.scale.width - 100 * size);
-    y = Math.max(y, 70);
+    // keep the word inside the death cam's view — it zooms to 1.4 right
+    // after the burst spawns, so clamp against that zoomed-in window
+    const w = this.scale.width;
+    const zoomedHalf = w / 1.4 / 2;
+    const view = this.cameras.main.worldView;
+    const left = Math.max(view.left, w / 2 - zoomedHalf) + 105 * size;
+    const right = Math.min(view.right, w / 2 + zoomedHalf) - 105 * size;
+    x = Phaser.Math.Clamp(x, left, right);
+    y = Math.max(y, view.top + 70);
     const words = ["SPLAT!", "BONK!", "OOF!", "PLOP!", "WHAM!"];
     const burst = this.add
       .image(x, y, "burst")
