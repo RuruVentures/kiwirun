@@ -72,7 +72,9 @@ export class UIScene extends Phaser.Scene {
   private recordTween?: Phaser.Tweens.Tween;
   private topListText!: Phaser.GameObjects.Text;
   private rankText!: Phaser.GameObjects.Text;
+  private shareBtn!: Phaser.GameObjects.Text;
   private entryScore = 0;
+  private lastScore = 0;
   private deathCount = 0;
 
   constructor() {
@@ -420,7 +422,7 @@ export class UIScene extends Phaser.Scene {
     c.add(this.topListText);
 
     this.rankText = this.add
-      .text(-180, 66, "", {
+      .text(-180, 62, "", {
         fontFamily: FONT,
         fontSize: "16px",
         fontStyle: "bold",
@@ -428,6 +430,25 @@ export class UIScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     c.add(this.rankText);
+
+    // share your score (and the game) — native share sheet on phones,
+    // clipboard on desktop
+    this.shareBtn = this.add
+      .text(-180, 100, "📤  Share score", {
+        fontFamily: FONT,
+        fontSize: "14px",
+        fontStyle: "bold",
+        color: "#ffe066",
+        backgroundColor: "#1c3a26",
+        padding: { x: 12, y: 7 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    this.shareBtn.on("pointerdown", () => {
+      this.input.stopPropagation(); // don't let the tap restart the run
+      this.shareScore();
+    });
+    c.add(this.shareBtn);
 
     c.add(
       this.add
@@ -577,8 +598,28 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
+  private shareScore() {
+    const url = "https://kiwirun.christoph-koch.workers.dev/";
+    const text = `🥝 I scored ${this.lastScore} points in KIWI RUN! Think you can beat me?`;
+    const nav = navigator;
+    if (typeof nav.share === "function") {
+      nav.share({ title: "Kiwi Run", text, url }).catch(() => undefined);
+      return;
+    }
+    void nav.clipboard
+      ?.writeText(`${text} ${url}`)
+      .then(() => {
+        this.shareBtn.setText("✅  Copied — paste anywhere!");
+        this.time.delayedCall(2000, () =>
+          this.shareBtn.setText("📤  Share score")
+        );
+      })
+      .catch(() => undefined);
+  }
+
   private showGameOver(p: DeadPayload) {
     this.deathCount++;
+    this.lastScore = p.score;
     const lines = DEATH_LINES[p.killer] ?? ["Kiwi meets physics."];
     this.overLine.setText(lines[Math.floor(Math.random() * lines.length)]);
     this.overScore.setText(`Score: ${p.score}    Best: ${p.best}`);
