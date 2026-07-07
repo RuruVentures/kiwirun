@@ -8,12 +8,13 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   parent: "app",
   backgroundColor: "#0b1020",
   fps: {
-  target: 60,
-  min: 10,
-  forceSetTimeOut: true,
-},
-
-  // optional, aber nice:
+    target: 60,
+    min: 10,
+    forceSetTimeOut: true,
+  },
+  render: {
+    pixelArt: true,
+  },
   input: { keyboard: true },
   scale: {
     mode: Phaser.Scale.FIT,
@@ -23,12 +24,10 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   },
   physics: {
     default: "arcade",
-arcade: {
-  gravity: { x: 0, y: 1400 },
-  debug: false,
-},
-
+    arcade: {
+      gravity: { x: 0, y: 1400 },
+      debug: false,
+    },
   },
   scene: [BootScene, RunScene, UIScene],
-  
 };
