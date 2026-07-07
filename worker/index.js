@@ -36,7 +36,7 @@ function cleanName(raw) {
 
 async function getTop(env) {
   const { results } = await env.DB.prepare(
-    "SELECT name, score FROM scores ORDER BY score DESC, created_at ASC LIMIT 10"
+    "SELECT name, score, country FROM scores ORDER BY score DESC, created_at ASC LIMIT 10"
   ).all();
   return results;
 }
@@ -68,10 +68,15 @@ export default {
           return json({ error: "invalid score" }, 400);
         }
 
+        // Cloudflare tells us the player's country at the edge — free geo,
+        // no permission prompts, no way to fake a flag from the client
+        const cfCountry = request.cf && request.cf.country;
+        const country = /^[A-Z]{2}$/.test(cfCountry ?? "") ? cfCountry : null;
+
         await env.DB.prepare(
-          "INSERT INTO scores (name, score, created_at) VALUES (?, ?, datetime('now'))"
+          "INSERT INTO scores (name, score, country, created_at) VALUES (?, ?, ?, datetime('now'))"
         )
-          .bind(name, score)
+          .bind(name, score, country)
           .run();
 
         const top = await getTop(env);

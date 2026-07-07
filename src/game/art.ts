@@ -14,15 +14,16 @@ const PAL: Record<string, number> = {
   g: 0x9193a3, // possum grey
   G: 0x6b6d7c, // possum dark grey
   p: 0xf0a3b0, // pink (noses, ears, rat tail)
-  r: 0x8f7d70, // rat fur
+  r: 0x9a7a5a, // rat fur (warm brown — clearly an animal, not a rock)
   H: 0x4c3a26, // hawk dark brown
   h: 0x8a6a42, // hawk light brown
   C: 0xf2e6c9, // cream chest
   y: 0xf2c14e, // yellow (beak, sparkle)
   f: 0x8a6a3e, // kiwifruit skin
   F: 0x9fe066, // kiwifruit flesh
-  s: 0x8494a5, // rock light
-  S: 0x5d6b7a, // rock dark
+  s: 0x6d7f92, // rock light (cool slate)
+  S: 0x3e4a58, // rock dark
+  Q: 0xaebfd0, // rock quartz highlight
   t: 0xd9c9a8, // dust
   N: 0x4c9e4f, // fern green
   n: 0x2e6b34, // fern green dark
@@ -203,27 +204,28 @@ const FRUIT = [
 ];
 
 // --------------------------------------------------------------- rocks
+// Jagged slate with a mossy cap — reads as terrain, never as an animal.
 const ROCK_1 = [
-  "....ssss....",
-  "..ssssssss..",
-  ".sssSssssss.",
-  "ssssssSsssss",
-  "sssSssssssSs",
-  "SssssssSssss",
-  "SSssssssssSS",
+  "....NN.n....",
+  "..NNsQNNn...",
+  ".NsQQss sN..",
+  ".ssQssSsss..",
+  "sssssSSssss.",
+  "SsssSssssSs.",
+  "SSsssssssSS.",
   "SSSSSSSSSSSS",
 ];
 
 const ROCK_2 = [
-  "......ssss......",
-  "....ssssssss....",
-  "...ssssSssssss..",
-  "..ssSssssssssss.",
-  ".sssssssSsssssss",
-  ".ssSsssssssssSss",
-  "SssssssSssssssss",
+  ".....Nn...NN....",
+  "...NNsQN.NsnN...",
+  "..NsQQssNssssN..",
+  "..ssQQsssSsssss.",
+  ".sssQssssssSsss.",
+  ".ssSssssQQsssss.",
+  "sssssSssQssssss.",
   "SsssSsssssssSsss",
-  "SSssssssssssssSS",
+  "SSsssssssssssSS.",
   "SSSssssssssssSSS",
   "SSSSSSSSSSSSSSSS",
 ];
@@ -340,7 +342,31 @@ const FEATHER = [".b", "bb", "bB", ".B"];
 const DUST = [".tt.", "tttt", ".tt."];
 const SPARK = ["..y..", ".yyy.", "yywyy", ".yyy.", "..y.."];
 
+/** Comic starburst for the death animation. */
+function makeBurst(scene: Phaser.Scene) {
+  if (scene.textures.exists("burst")) return;
+  const g = scene.make.graphics({ x: 0, y: 0 }, false);
+  const cx = 52;
+  const cy = 52;
+  const star = (spikes: number, rOut: number, rIn: number, color: number) => {
+    g.fillStyle(color, 1);
+    const pts: Phaser.Types.Math.Vector2Like[] = [];
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? rOut : rIn;
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    g.fillPoints(pts, true);
+  };
+  star(12, 50, 24, 0xe8542f);
+  star(12, 42, 20, 0xffe066);
+  star(10, 26, 13, 0xffffff);
+  g.generateTexture("burst", 104, 104);
+  g.destroy();
+}
+
 export function makeSprites(scene: Phaser.Scene) {
+  makeBurst(scene);
   pixelTexture(scene, "kiwi_run1", [...KIWI_BODY, ...KIWI_LEGS_A]);
   pixelTexture(scene, "kiwi_run2", [...KIWI_BODY, ...KIWI_LEGS_B]);
   pixelTexture(scene, "kiwi_jump", [...KIWI_BODY, ...KIWI_LEGS_JUMP]);

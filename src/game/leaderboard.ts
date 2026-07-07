@@ -2,7 +2,15 @@
  * Global top-10 leaderboard, backed by a Cloudflare Worker + D1.
  * The same worker also hosts the game itself.
  */
-export type ScoreRow = { name: string; score: number };
+export type ScoreRow = { name: string; score: number; country?: string | null };
+
+/** "DE" -> 🇩🇪 (renders as letters on Windows, real flags on phones). */
+export function flagEmoji(country?: string | null): string {
+  if (!country || !/^[A-Z]{2}$/.test(country)) return "";
+  return String.fromCodePoint(
+    ...[...country].map((c) => 127397 + c.charCodeAt(0))
+  );
+}
 
 const API = "https://kiwirun.christoph-koch.workers.dev/api/scores";
 

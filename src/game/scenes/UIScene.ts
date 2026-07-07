@@ -1,5 +1,11 @@
 import Phaser from "phaser";
-import { fetchTop, submitScore, qualifies, type ScoreRow } from "../leaderboard";
+import {
+  fetchTop,
+  submitScore,
+  qualifies,
+  flagEmoji,
+  type ScoreRow,
+} from "../leaderboard";
 
 type DeadPayload = {
   score: number;
@@ -202,15 +208,15 @@ export class UIScene extends Phaser.Scene {
   private buildStartPanel(): Phaser.GameObjects.Container {
     const w = this.scale.width;
     const h = this.scale.height;
-    const c = this.add.container(w / 2, h / 2 - 14);
+    const c = this.add.container(w / 2, h / 2);
 
-    c.add(this.panelBg(660, 330));
+    c.add(this.panelBg(780, 440));
 
     c.add(
       this.add
-        .text(0, -126, "KIWI RUN", {
+        .text(0, -186, "KIWI RUN", {
           fontFamily: FONT,
-          fontSize: "52px",
+          fontSize: "46px",
           fontStyle: "bold",
           color: "#ffe066",
           stroke: "#3a2a00",
@@ -220,39 +226,70 @@ export class UIScene extends Phaser.Scene {
     );
     c.add(
       this.add
-        .text(0, -84, "A flightless bird. Endless problems.", {
+        .text(0, -148, "A flightless bird. Endless problems. One global top 10.", {
           fontFamily: FONT,
-          fontSize: "15px",
+          fontSize: "14px",
           color: "#cfe8c8",
         })
         .setOrigin(0.5)
     );
 
     const touch = this.sys.game.device.input.touch;
-    const lines = touch
+    const controls = touch
       ? [
-          "TAP — jump  ·  tap again mid-air: FLAP!",
-          "HOLD LEFT side — duck  ·  downhill: SLIDE & smash pests!",
-          "Rocks are indestructible — jump them, even mid-slide",
-          "8 kiwifruit fill your buddy meter → tap the HELP! button",
+          "TAP  —  jump",
+          "TAP again mid-air  —  FLAP (double jump)",
+          "HOLD LEFT half  —  duck / slide",
+          "HOLD LEFT mid-air  —  dive down fast",
+          "HELP! button  —  call your buddy",
         ]
       : [
-          "SPACE / ↑ / click — jump  ·  press again mid-air: FLAP!",
-          "hold ↓ / S — duck  ·  on a downhill: SLIDE & smash pests!",
-          "Rocks are indestructible — jump them, even mid-slide",
-          "8 kiwifruit fill your buddy meter → press E for backup",
+          "SPACE / ↑ / click  —  jump",
+          "press again mid-air  —  FLAP (double jump)",
+          "release early  —  shorter jump",
+          "hold ↓ / S  —  duck  ·  mid-air: dive",
+          "E  —  call your buddy   ·   M  —  music",
         ];
-    lines.forEach((s, i) =>
+    const rules = [
+      "Dodge possums, rats & the kārearea falcon",
+      "The falcon flies low  —  DUCK under it!",
+      "Hold duck on a DOWNHILL  —  slide & smash",
+      "pests for +25  ·  rocks NEVER break: jump!",
+      "Slide over a hill crest for big air  —  boing!",
+      "Kiwifruit = +15  ·  8 of them = buddy ready:",
+      "a kea or a ranger clears the road for 10 s",
+    ];
+
+    const col = (
+      x: number,
+      title: string,
+      lines: string[],
+      colTitleColor: string
+    ) => {
       c.add(
         this.add
-          .text(0, -52 + i * 21, s, {
+          .text(x, -118, title, {
             fontFamily: FONT,
-            fontSize: "13px",
-            color: "#ffffff",
+            fontSize: "16px",
+            fontStyle: "bold",
+            color: colTitleColor,
           })
-          .setOrigin(0.5)
-      )
-    );
+          .setOrigin(0, 0)
+      );
+      lines.forEach((s, i) =>
+        c.add(
+          this.add
+            .text(x, -90 + i * 20, s, {
+              fontFamily: FONT,
+              fontSize: "13px",
+              color: "#ffffff",
+            })
+            .setOrigin(0, 0)
+        )
+      );
+    };
+    col(-360, "🎮 CONTROLS", controls, "#9fe066");
+    col(10, "🥝 HOW TO PLAY", rules, "#ffe066");
 
     // cast line-up: pests in red, friends in green
     const lineup: { tex: string; name: string; friend?: boolean }[] = [
@@ -263,13 +300,13 @@ export class UIScene extends Phaser.Scene {
       { tex: "kea1", name: "KEA ♥", friend: true },
       { tex: "ranger1", name: "RANGER ♥", friend: true },
     ];
-    const startX = -250;
+    const startX = -290;
     lineup.forEach((e, i) => {
-      const x = startX + i * 100;
-      c.add(this.add.image(x, 52, e.tex));
+      const x = startX + i * 116;
+      c.add(this.add.image(x, 96, e.tex));
       c.add(
         this.add
-          .text(x, 92, e.name, {
+          .text(x, 136, e.name, {
             fontFamily: FONT,
             fontSize: "11px",
             fontStyle: "bold",
@@ -280,7 +317,7 @@ export class UIScene extends Phaser.Scene {
     });
 
     const go = this.add
-      .text(0, 130, "▶  Press SPACE", {
+      .text(0, 178, touch ? "▶  TAP to start" : "▶  Press SPACE", {
         fontFamily: FONT,
         fontSize: "20px",
         fontStyle: "bold",
@@ -407,9 +444,10 @@ export class UIScene extends Phaser.Scene {
     }
     let marked = false;
     const lines = rows.map((r, i) => {
+      const flag = flagEmoji(r.country);
       const line = `${String(i + 1).padStart(2)}. ${r.name.padEnd(12)} ${String(
         r.score
-      ).padStart(6)}`;
+      ).padStart(6)}${flag ? " " + flag : ""}`;
       if (
         !marked &&
         highlight &&

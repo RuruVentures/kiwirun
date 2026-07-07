@@ -67,6 +67,7 @@ export class RunScene extends Phaser.Scene {
   private groundGfx!: Phaser.GameObjects.Graphics;
 
   private feathers!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private boomFeathers!: Phaser.GameObjects.Particles.ParticleEmitter;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private slideDust!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -88,12 +89,15 @@ export class RunScene extends Phaser.Scene {
   private grounded = true;
   private vy = 0;
   private prevGroundVy = 0;
+  private exploded = false;
+  private deathSeq = 0;
+  private canRestartAt = 0;
+  private deathPayload?: { score: number; best: number; record: boolean; killer: Killer };
   private ducking = false;
   private sliding = false;
   private slideBurstUntil = 0;
   private slideCooldownAt = 0;
   private airFlaps = 1;
-  private deadAt = 0;
   private safeUntil = 0;
   private comboStep = 0;
   private lastPickupAt = 0;
@@ -193,7 +197,7 @@ export class RunScene extends Phaser.Scene {
         this.smash(o, `+${SMASH_POINTS}`);
         return;
       }
-      this.die(killer);
+      this.die(killer, o);
     });
 
     this.physics.add.overlap(this.player, this.fruits, (_p, obj) => {
@@ -223,6 +227,19 @@ export class RunScene extends Phaser.Scene {
       emitting: false,
     });
     this.dust.setDepth(11);
+
+    // screen-filling feather supernova for the death explosion
+    this.boomFeathers = this.add.particles(0, 0, "feather", {
+      speed: { min: 260, max: 900 },
+      angle: { min: 0, max: 360 },
+      gravityY: 380,
+      lifespan: { min: 900, max: 1900 },
+      scale: { start: 1.6, end: 0.4 },
+      alpha: { start: 1, end: 0 },
+      rotate: { min: -360, max: 360 },
+      emitting: false,
+    });
+    this.boomFeathers.setDepth(24);
 
     this.slideDust = this.add.particles(0, 0, "dust", {
       speed: { min: 40, max: 120 },
@@ -313,8 +330,14 @@ export class RunScene extends Phaser.Scene {
     }
 
     if (this.phase === "dead") {
-      this.vy += GRAVITY * dt;
-      this.player.y += this.vy * dt;
+      if (!this.exploded) {
+        this.vy += GRAVITY * dt;
+        this.player.y += this.vy * dt;
+        // the spinning kiwi hits the dirt — KAWUMM from right there
+        if (this.vy > 0 && this.player.y >= this.gy(PLAYER_X) + 4) {
+          this.explodeKiwi();
+        }
+      }
       return;
     }
 
@@ -579,7 +602,8 @@ export class RunScene extends Phaser.Scene {
       return;
     }
     if (this.phase === "dead") {
-      if (this.time.now > this.deadAt + 600) this.resetRun();
+      // wait for the full death show + panel before allowing a restart
+      if (this.time.now > this.canRestartAt) this.resetRun();
       return;
     }
 
@@ -639,6 +663,17 @@ export class RunScene extends Phaser.Scene {
     this.decos = [];
     this.retireHelper(true);
 
+    // undo death-cam drama
+    const cam = this.cameras.main;
+    cam.panEffect.reset();
+    cam.zoomEffect.reset();
+    cam.setZoom(1);
+    cam.centerOn(this.scale.width / 2, this.scale.height / 2);
+    this.tweens.killTweensOf(this.player);
+    this.player.setVisible(true);
+    this.exploded = false;
+    this.deathSeq++;
+
     this.terrain.reset(0);
     this.distance = 0;
 
@@ -695,10 +730,12 @@ export class RunScene extends Phaser.Scene {
     this.scheduleDeco();
   }
 
-  private die(killer: Killer) {
+  private die(killer: Killer, killerSprite?: Obstacle) {
     if (this.phase !== "running") return;
     this.phase = "dead";
-    this.deadAt = this.time.now;
+    this.deathSeq++;
+    this.exploded = false;
+    this.canRestartAt = Number.MAX_SAFE_INTEGER;
 
     this.nextSpawn?.remove(false);
     this.nextFruit?.remove(false);
@@ -706,27 +743,188 @@ export class RunScene extends Phaser.Scene {
     this.retireHelper(true);
     stopMusic();
     sfx.die();
-
-    this.cameras.main.shake(220, 0.008);
-    this.feathers.explode(14, this.player.x, this.player.y - 24);
     this.slideDust.stop();
     this.player.clearTint();
 
-    // Mario-style death: pop up, spin, tumble off screen
+    const px = this.player.x;
+    const py = this.player.y - 26;
+    const cam = this.cameras.main;
+
+    // 1. white impact flash + comic burst at the hit
+    const flash = this.add
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0xffffff)
+      .setOrigin(0)
+      .setDepth(25)
+      .setAlpha(0.7);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => flash.destroy(),
+    });
+    this.showComicBurst(px + 26, py - 8);
+
+    // 2. camera punches in and follows the drama
+    cam.shake(240, 0.008);
+    cam.pan(px + 40, py, 320, "Sine.easeOut");
+    cam.zoomTo(1.4, 320, "Sine.easeOut");
+
+    // 3. impact poof, then the kiwi spins up into the air…
+    this.feathers.explode(14, px, py);
+    this.dust.explode(8, px, this.player.y - 4);
     this.setPlayerTexture("kiwi_jump");
     this.player.setFlipY(true);
     this.grounded = false;
-    this.vy = -560;
-    this.tweens.add({ targets: this.player, angle: 380, duration: 900 });
+    this.vy = -620;
+    this.tweens.add({ targets: this.player, angle: 1440, duration: 1500 });
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 1.5,
+      scaleY: 1.5,
+      duration: 900,
+      ease: "quad.out",
+    });
+    // …and comes crashing down — the update loop triggers explodeKiwi()
+    // on landing. Safety net in case something goes sideways:
+    const seq = this.deathSeq;
+    this.time.delayedCall(2600, () => {
+      if (this.phase === "dead" && seq === this.deathSeq && !this.exploded) {
+        this.explodeKiwi();
+      }
+    });
+
+    // 4. the killer does a little victory dance
+    if (killerSprite && killerSprite.active) {
+      this.tweens.add({
+        targets: killerSprite,
+        y: killerSprite.y - 14,
+        duration: 150,
+        yoyo: true,
+        repeat: 3,
+        ease: "quad.out",
+      });
+    }
 
     const score = this.currentScore();
     const record = score > this.best && score > 0;
     if (record) {
       this.best = score;
       localStorage.setItem(BEST_KEY, String(score));
-      this.time.delayedCall(650, () => sfx.record());
     }
-    this.game.events.emit("dead", { score, best: this.best, record, killer });
+    this.deathPayload = { score, best: this.best, record, killer };
+  }
+
+  /** The big KAWUMM — fired from the exact spot where the kiwi lands. */
+  private explodeKiwi() {
+    if (this.exploded || this.phase !== "dead") return;
+    this.exploded = true;
+    const seq = this.deathSeq;
+
+    const px = this.player.x;
+    const py = Math.min(this.player.y, this.gy(PLAYER_X)) - 10;
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const cam = this.cameras.main;
+
+    this.tweens.killTweensOf(this.player);
+    this.player.setVisible(false);
+    sfx.kawumm();
+
+    // huge flash
+    const flash = this.add
+      .rectangle(0, 0, w, h, 0xffffff)
+      .setOrigin(0)
+      .setDepth(25)
+      .setAlpha(0.95);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 340,
+      onComplete: () => flash.destroy(),
+    });
+
+    // feather supernova across the whole screen
+    this.boomFeathers.explode(90, px, py);
+    this.sparks.explode(34, px, py);
+    this.dust.explode(16, px, py + 8);
+
+    // expanding shockwave rings
+    [0xffffff, 0xffe066].forEach((color, i) => {
+      const ring = this.add
+        .circle(px, py, 12)
+        .setStrokeStyle(7 - i * 2, color, 0.9)
+        .setFillStyle(0, 0)
+        .setDepth(24);
+      this.tweens.add({
+        targets: ring,
+        radius: 420 + i * 160,
+        alpha: 0,
+        delay: i * 110,
+        duration: 650,
+        ease: "quad.out",
+        onComplete: () => ring.destroy(),
+      });
+    });
+
+    this.showComicBurst(px, py - 30, "KAWUMM!", 2.3);
+
+    // camera: big shake and pull back out to show the whole blast
+    cam.shake(420, 0.016);
+    cam.pan(w / 2, h / 2, 450, "Sine.easeInOut");
+    cam.zoomTo(1, 450, "Sine.easeInOut");
+
+    // panel + restart only after the show is over
+    if (this.deathPayload?.record) {
+      this.time.delayedCall(1100, () => sfx.record());
+    }
+    this.canRestartAt = this.time.now + 1900;
+    this.time.delayedCall(1500, () => {
+      if (this.phase === "dead" && seq === this.deathSeq && this.deathPayload) {
+        this.game.events.emit("dead", this.deathPayload);
+      }
+    });
+  }
+
+  private showComicBurst(x: number, y: number, forcedWord?: string, size = 1.5) {
+    const words = ["SPLAT!", "BONK!", "OOF!", "PLOP!", "WHAM!"];
+    const burst = this.add
+      .image(x, y, "burst")
+      .setDepth(24)
+      .setScale(0)
+      .setAngle(Phaser.Math.Between(-20, 20));
+    const word = this.add
+      .text(x, y, forcedWord ?? words[Phaser.Math.Between(0, words.length - 1)], {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "30px",
+        fontStyle: "bold",
+        color: "#ffffff",
+        stroke: "#a82810",
+        strokeThickness: 7,
+      })
+      .setOrigin(0.5)
+      .setDepth(24)
+      .setScale(0);
+    this.tweens.add({
+      targets: [burst, word],
+      scale: size,
+      duration: 380,
+      ease: "back.out(2.2)",
+    });
+    this.tweens.add({
+      targets: burst,
+      angle: burst.angle + 25,
+      duration: 900,
+    });
+    this.tweens.add({
+      targets: [burst, word],
+      alpha: 0,
+      delay: 750,
+      duration: 300,
+      onComplete: () => {
+        burst.destroy();
+        word.destroy();
+      },
+    });
   }
 
   // ================================================================ helpers

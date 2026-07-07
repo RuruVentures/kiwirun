@@ -60,8 +60,16 @@ export const sfx = {
     tone(130, 0.06, "triangle", 0.05, 80);
   },
   die() {
-    tone(420, 0.5, "sawtooth", 0.07, 70);
-    tone(210, 0.4, "square", 0.04, 55, 0.08);
+    // cartoon slide whistle up-and-away…
+    tone(600, 0.5, "sine", 0.08, 1400);
+    tone(420, 0.4, "sawtooth", 0.04, 900, 0.05);
+  },
+  kawumm() {
+    // …then the big one
+    tone(180, 0.3, "square", 0.08, 40);
+    tone(80, 0.55, "sawtooth", 0.1, 26, 0.02);
+    tone(55, 0.7, "square", 0.09, 22, 0.05);
+    tone(1400, 0.12, "sawtooth", 0.05, 300, 0.0);
   },
   start() {
     [523, 659, 784, 1047].forEach((f, i) =>
