@@ -143,6 +143,9 @@ export class RunScene extends Phaser.Scene {
     this.groundTop = h - GROUND_H;
     this.best = Number(localStorage.getItem(BEST_KEY) ?? 0) || 0;
 
+    // the death cam zooms/pans — never let it show the void outside the world
+    this.cameras.main.setBounds(0, 0, w, h);
+
     // ------------------------------------------------ background layers
     this.add.image(0, 0, "sky").setOrigin(0).setDepth(0);
     this.add.image(w - 120, 86, "sun").setDepth(1);
@@ -764,9 +767,9 @@ export class RunScene extends Phaser.Scene {
     });
     this.showComicBurst(px + 26, py - 8);
 
-    // 2. camera punches in and follows the drama
+    // 2. camera punches in — vertical only, no sideways slide
     cam.shake(240, 0.008);
-    cam.pan(px + 40, py, 320, "Sine.easeOut");
+    cam.pan(this.scale.width / 2, py, 320, "Sine.easeOut");
     cam.zoomTo(1.4, 320, "Sine.easeOut");
 
     // 3. impact poof, then the kiwi spins up into the air…
@@ -886,6 +889,9 @@ export class RunScene extends Phaser.Scene {
   }
 
   private showComicBurst(x: number, y: number, forcedWord?: string, size = 1.5) {
+    // keep the word fully on screen even when the crash is near an edge
+    x = Phaser.Math.Clamp(x, 100 * size, this.scale.width - 100 * size);
+    y = Math.max(y, 70);
     const words = ["SPLAT!", "BONK!", "OOF!", "PLOP!", "WHAM!"];
     const burst = this.add
       .image(x, y, "burst")
