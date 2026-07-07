@@ -25,6 +25,12 @@ const PAL: Record<string, number> = {
   S: 0x5d6b7a, // rock dark
   t: 0xd9c9a8, // dust
   N: 0x4c9e4f, // fern green
+  n: 0x2e6b34, // fern green dark
+  v: 0x74923d, // kea olive
+  V: 0x51702c, // kea dark
+  o: 0xe07830, // kea orange underwing
+  u: 0x9a8a5a, // ranger khaki
+  U: 0x3f5a35, // ranger DOC green
 };
 
 export function pixelTexture(
@@ -222,6 +228,113 @@ const ROCK_2 = [
   "SSSSSSSSSSSSSSSS",
 ];
 
+// ------------------------------------------------------- kea (friendly!)
+// Faces left like the hawk; flipped at runtime when it darts right.
+// Body rows 5-8 are identical in both frames.
+const KEA_A = [
+  "........vvv.........",
+  ".......vvvv.........",
+  "......vvvv..........",
+  ".....vvvv...........",
+  "..vv.vvv............",
+  ".vkvvvvvvvvvvvVV....",
+  "SvvvvvvvvvvvvvvVVV..",
+  ".vooooovvvvvvVVV....",
+  "..ooooovvvv.........",
+  "....................",
+];
+
+const KEA_B = [
+  "....................",
+  "....................",
+  "....................",
+  "....................",
+  "..vv................",
+  ".vkvvvvvvvvvvvVV....",
+  "SvvvvvvvvvvvvvvVVV..",
+  ".vooooovvvvvvVVV....",
+  "..ooooovvvvv........",
+  ".....vvvv...........",
+];
+
+// ------------------------------------------------- DOC ranger (friendly!)
+// Comes with a baseball bat. Frame A: bat raised. Frame B: full swing.
+const RANGER_A = [
+  "............BB",
+  "...........BB.",
+  "..........BB..",
+  "...UUUUU..BB..",
+  "..UUUUUUU.B...",
+  "...BBBB...B...",
+  "...BkBB..B....",
+  "..uuuuuuBB....",
+  ".uuuuuuuu.....",
+  "..uuuuuu......",
+  "...UUUU.......",
+  "...U..U.......",
+  "..HH..HH......",
+];
+
+const RANGER_B = [
+  "..............",
+  "..............",
+  "..............",
+  "...UUUUU......",
+  "..UUUUUUU.....",
+  "...BBBB.......",
+  "...BkBB.......",
+  "..uuuuuu......",
+  ".uuuuuuBBBBBBB",
+  "..uuuuuu......",
+  "...UUUU.......",
+  "....UU........",
+  "...HH.HH......",
+];
+
+// ------------------------------------------------------- vegetation deco
+const TREE_FERN = [
+  "....N...N...N...",
+  ".N..NN.NN..N.N..",
+  ".NN..NNNN.NN....",
+  "..NNNnNNNNN..N..",
+  "....NnNNNNNN....",
+  ".NNNN.HH.NNNN...",
+  "......HH........",
+  "......HH........",
+  "......HH........",
+];
+
+const CABBAGE_TREE = [
+  "..N..N..N..",
+  ".NNN.N.NNN.",
+  "..NnNNNnN..",
+  "....NNN....",
+  ".....H.....",
+  ".....H.....",
+  ".....H.....",
+  ".....H.....",
+  ".....HH....",
+];
+
+const FLAX = [
+  "N....n....N",
+  ".N...n...N.",
+  ".NN.NnN.NN.",
+  "..NnNNNnN..",
+  "...NNNNN...",
+];
+
+const TOITOI = [
+  "..tt...tt..",
+  ".tttt.tttt.",
+  "..tt...tt..",
+  "...n...n...",
+  "...n..n....",
+  "...nn.n....",
+  "....nnn....",
+  "....nn.....",
+];
+
 // ------------------------------------------------------------ particles
 const FEATHER = [".b", "bb", "bB", ".B"];
 const DUST = [".tt.", "tttt", ".tt."];
@@ -244,6 +357,14 @@ export function makeSprites(scene: Phaser.Scene) {
   pixelTexture(scene, "feather", FEATHER, 2);
   pixelTexture(scene, "dust", DUST, 2);
   pixelTexture(scene, "spark", SPARK, 2);
+  pixelTexture(scene, "kea1", KEA_A);
+  pixelTexture(scene, "kea2", KEA_B);
+  pixelTexture(scene, "ranger1", RANGER_A);
+  pixelTexture(scene, "ranger2", RANGER_B);
+  pixelTexture(scene, "deco_treefern", TREE_FERN);
+  pixelTexture(scene, "deco_cabbage", CABBAGE_TREE);
+  pixelTexture(scene, "deco_flax", FLAX);
+  pixelTexture(scene, "deco_toitoi", TOITOI);
 }
 
 // ---------------------------------------------------------- backgrounds
@@ -334,10 +455,12 @@ export function makeBackgrounds(scene: Phaser.Scene, w: number, h: number) {
   }
 
   // Near layer: rolling green hills (sine waves with whole cycles → seamless)
+  // Near textures are 190 tall with a solid base so valleys never show sky.
   if (!scene.textures.exists("hills_near")) {
     const g = make();
-    const H = 120;
+    const H = 190;
     g.fillStyle(0x74b06a, 1);
+    g.fillRect(0, 96, w, H - 96);
     g.beginPath();
     g.moveTo(0, H);
     for (let x = 0; x <= w; x += 6) {
@@ -361,6 +484,114 @@ export function makeBackgrounds(scene: Phaser.Scene, w: number, h: number) {
       g.fillTriangle(fx + 1, fy, fx + 8, fy, fx + 5, fy - fh * 0.7);
     }
     g.generateTexture("hills_near", w, H);
+    g.destroy();
+  }
+
+  // --- bush biome: layered forest canopy (drawn 3x shifted for seamless tiling)
+  if (!scene.textures.exists("far_bush")) {
+    const g = make();
+    const H = 170;
+    const drawRow = (y: number, r: number, color: number, seed: number) => {
+      g.fillStyle(color, 1);
+      const step = w / 10;
+      for (let pass = -1; pass <= 1; pass++) {
+        for (let i = 0; i < 10; i++) {
+          const cx = pass * w + i * step + rnd(i * 7 + seed) * 40;
+          g.fillCircle(cx, y, r + rnd(i * 3 + seed) * 18);
+        }
+      }
+      g.fillRect(0, y, w, H - y);
+    };
+    drawRow(60, 34, 0x4a7a52, 11);
+    drawRow(100, 40, 0x35603d, 23);
+    g.generateTexture("far_bush", w, H);
+    g.destroy();
+  }
+
+  if (!scene.textures.exists("near_bush")) {
+    const g = make();
+    const H = 190;
+    const drawRow = (y: number, r: number, color: number, seed: number) => {
+      g.fillStyle(color, 1);
+      const step = w / 8;
+      for (let pass = -1; pass <= 1; pass++) {
+        for (let i = 0; i < 8; i++) {
+          const cx = pass * w + i * step + rnd(i * 13 + seed) * 50;
+          g.fillCircle(cx, y, r + rnd(i * 5 + seed) * 16);
+        }
+      }
+      g.fillRect(0, y, w, H - y);
+    };
+    drawRow(56, 34, 0x2c5232, 31);
+    // tree-fern silhouettes poking out of the canopy
+    g.fillStyle(0x1e3d24, 1);
+    for (let i = 0; i < 8; i++) {
+      const fx = 40 + rnd(i * 17 + 41) * (w - 80);
+      const fy = 44 - rnd(i * 19 + 3) * 16;
+      g.fillRect(fx - 2, fy, 4, 30);
+      for (let a = 0; a < 5; a++) {
+        const ang = -Math.PI * (0.15 + a * 0.175);
+        g.fillTriangle(
+          fx,
+          fy,
+          fx + Math.cos(ang) * 16,
+          fy + Math.sin(ang) * 16,
+          fx + Math.cos(ang + 0.28) * 15,
+          fy + Math.sin(ang + 0.28) * 15
+        );
+      }
+    }
+    g.generateTexture("near_bush", w, H);
+    g.destroy();
+  }
+
+  // --- coast biome: sea horizon + distant island, then dunes
+  if (!scene.textures.exists("far_coast")) {
+    const g = make();
+    const H = 170;
+    g.fillStyle(0x4a90c4, 1);
+    g.fillRect(0, 40, w, H - 40);
+    g.fillStyle(0x6fb0d8, 1);
+    for (let i = 0; i < 24; i++) {
+      const lx = rnd(i * 11 + 7) * (w - 40);
+      const ly = 48 + rnd(i * 13 + 5) * 100;
+      g.fillRect(lx, ly, 14 + rnd(i) * 22, 2);
+    }
+    // distant island
+    g.fillStyle(0x39698c, 1);
+    g.fillEllipse(w * 0.7, 62, 170, 26);
+    // little sail
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(w * 0.3, 60, w * 0.3, 46, w * 0.3 + 9, 58);
+    g.generateTexture("far_coast", w, H);
+    g.destroy();
+  }
+
+  if (!scene.textures.exists("near_coast")) {
+    const g = make();
+    const H = 190;
+    g.fillStyle(0xd8c48a, 1);
+    g.beginPath();
+    g.moveTo(0, H);
+    for (let x = 0; x <= w; x += 6) {
+      const y =
+        62 +
+        Math.sin((x / w) * Math.PI * 2 * 4) * 14 +
+        Math.sin((x / w) * Math.PI * 2 * 9 + 1) * 7;
+      g.lineTo(x, y);
+    }
+    g.lineTo(w, H);
+    g.closePath();
+    g.fillPath();
+    // beach grass
+    g.fillStyle(0x9a8a4a, 1);
+    for (let i = 0; i < 16; i++) {
+      const gx = 20 + rnd(i * 23 + 9) * (w - 40);
+      const gy = 68 + rnd(i * 29 + 4) * 30;
+      g.fillTriangle(gx - 4, gy, gx + 4, gy, gx, gy - 14);
+      g.fillTriangle(gx, gy, gx + 8, gy, gx + 6, gy - 11);
+    }
+    g.generateTexture("near_coast", w, H);
     g.destroy();
   }
 

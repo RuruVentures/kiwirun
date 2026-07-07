@@ -1,38 +1,79 @@
 import Phaser from "phaser";
 import { sfx, startMusic, stopMusic, toggleMusic } from "../audio";
+import { Terrain } from "../terrain";
 
 type Killer = "possum" | "rat" | "rock" | "hawk";
 type GamePhase = "ready" | "running" | "dead";
+type HelperType = "kea" | "ranger";
 
 const GROUND_H = 92;
+const PLAYER_X = 150;
 const START_SPEED = 300;
 const MAX_SPEED = 720;
 const ACCEL = 9; // px/s gained per second
+const GRAVITY = 1500;
 const JUMP_VY = -640;
 const FLAP_VY = -540;
 const JUMP_CUT_VY = -260;
 const FAST_FALL_VY = 950;
+const SLIDE_SLOPE = 0.09; // min downhill slope for a sustained slide
+const SMASH_POINTS = 25;
+const FRUIT_PER_HELPER = 8;
+const HELPER_MS = 10000;
 const BEST_KEY = "kiwirun_best";
 
 type ArcadeBody = Phaser.Physics.Arcade.Body;
+type Obstacle = Phaser.Physics.Arcade.Sprite;
+
+const BIOMES = [
+  {
+    far: "hills_far",
+    near: "hills_near",
+    overlay: 0x000000,
+    overlayAlpha: 0,
+    ground: [0x4e9a4a, 0x3e8a3c, 0x8a6a48],
+    deco: ["deco_flax", "deco_cabbage", "deco_toitoi"],
+  },
+  {
+    far: "far_bush",
+    near: "near_bush",
+    overlay: 0x2e5a34,
+    overlayAlpha: 0.12,
+    ground: [0x3a7a42, 0x2e6b34, 0x6e5a3e],
+    deco: ["deco_treefern", "deco_treefern", "deco_cabbage"],
+  },
+  {
+    far: "far_coast",
+    near: "near_coast",
+    overlay: 0x4a90c4,
+    overlayAlpha: 0.09,
+    ground: [0xc9b06a, 0xa89050, 0x9a7f56],
+    deco: ["deco_toitoi", "deco_flax", "deco_toitoi"],
+  },
+];
 
 export class RunScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private obstacles!: Phaser.Physics.Arcade.Group;
   private fruits!: Phaser.Physics.Arcade.Group;
+  private decos: Phaser.GameObjects.Image[] = [];
 
   private clouds!: Phaser.GameObjects.TileSprite;
-  private hillsFar!: Phaser.GameObjects.TileSprite;
-  private hillsNear!: Phaser.GameObjects.TileSprite;
-  private groundTile!: Phaser.GameObjects.TileSprite;
+  private farA!: Phaser.GameObjects.TileSprite;
+  private farB!: Phaser.GameObjects.TileSprite;
+  private nearA!: Phaser.GameObjects.TileSprite;
+  private nearB!: Phaser.GameObjects.TileSprite;
+  private overlay!: Phaser.GameObjects.Rectangle;
+  private groundGfx!: Phaser.GameObjects.Graphics;
 
   private feathers!: Phaser.GameObjects.Particles.ParticleEmitter;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private slideDust!: Phaser.GameObjects.Particles.ParticleEmitter;
 
-  private jumpKeys: Phaser.Input.Keyboard.Key[] = [];
   private duckKeys: Phaser.Input.Keyboard.Key[] = [];
 
+  private terrain = new Terrain();
   private phase: GamePhase = "ready";
   private groundTop = 0;
   private speed = START_SPEED;
@@ -41,13 +82,31 @@ export class RunScene extends Phaser.Scene {
   private fruitCount = 0;
   private best = 0;
   private lastEmittedScore = -1;
+
+  private grounded = true;
+  private vy = 0;
+  private prevGroundVy = 0;
   private ducking = false;
+  private sliding = false;
+  private slideBurstUntil = 0;
+  private slideCooldownAt = 0;
   private airFlaps = 1;
-  private wasAirborne = false;
   private deadAt = 0;
   private safeUntil = 0;
   private comboStep = 0;
   private lastPickupAt = 0;
+
+  private biome = 0;
+  private biomeFading = false;
+  private groundColors = BIOMES[0].ground;
+
+  private helperReady = false;
+  private helperActive = false;
+  private helperType: HelperType = "kea";
+  private helperSprite?: Phaser.GameObjects.Sprite;
+  private helperUntil = 0;
+  private helperSecsShown = 0;
+  private fruitsToward = 0;
 
   private runAnimT = 0;
   private runFrameB = false;
@@ -56,10 +115,20 @@ export class RunScene extends Phaser.Scene {
 
   private nextSpawn?: Phaser.Time.TimerEvent;
   private nextFruit?: Phaser.Time.TimerEvent;
+  private nextDeco?: Phaser.Time.TimerEvent;
   private idleTween?: Phaser.Tweens.Tween;
 
   constructor() {
     super("Run");
+  }
+
+  // ground height (screen y) at a screen x for the current scroll position
+  private gy(screenX: number): number {
+    return this.groundTop + this.terrain.heightAt(this.distance + screenX);
+  }
+
+  private slopeAtPlayer(): number {
+    return this.terrain.slopeAt(this.distance + PLAYER_X);
   }
 
   create() {
@@ -69,32 +138,45 @@ export class RunScene extends Phaser.Scene {
     this.best = Number(localStorage.getItem(BEST_KEY) ?? 0) || 0;
 
     // ------------------------------------------------ background layers
-    this.add.image(0, 0, "sky").setOrigin(0);
-    this.add.image(w - 120, 86, "sun");
-    this.clouds = this.add.tileSprite(0, 36, w, 120, "clouds").setOrigin(0);
-    this.hillsFar = this.add
-      .tileSprite(0, this.groundTop - 170, w, 170, "hills_far")
-      .setOrigin(0);
-    this.hillsNear = this.add
-      .tileSprite(0, this.groundTop - 120, w, 120, "hills_near")
-      .setOrigin(0);
-    this.groundTile = this.add
-      .tileSprite(0, this.groundTop - 28, w, 28 + GROUND_H, "ground")
-      .setOrigin(0);
-
-    // Invisible static ground body
-    const groundRect = this.add
-      .rectangle(w / 2, this.groundTop + GROUND_H / 2, w, GROUND_H)
+    this.add.image(0, 0, "sky").setOrigin(0).setDepth(0);
+    this.add.image(w - 120, 86, "sun").setDepth(1);
+    this.clouds = this.add
+      .tileSprite(0, 36, w, 120, "clouds")
+      .setOrigin(0)
+      .setDepth(2);
+    this.farA = this.add
+      .tileSprite(0, 240, w, 170, "hills_far")
+      .setOrigin(0)
+      .setDepth(3);
+    this.farB = this.add
+      .tileSprite(0, 240, w, 170, "far_bush")
+      .setOrigin(0)
+      .setDepth(3)
       .setVisible(false);
-    this.physics.add.existing(groundRect, true);
+    this.nearA = this.add
+      .tileSprite(0, 280, w, 190, "hills_near")
+      .setOrigin(0)
+      .setDepth(4);
+    this.nearB = this.add
+      .tileSprite(0, 280, w, 190, "near_bush")
+      .setOrigin(0)
+      .setDepth(4)
+      .setVisible(false);
+
+    this.groundGfx = this.add.graphics().setDepth(5);
+
+    this.overlay = this.add
+      .rectangle(0, 0, w, h, 0x000000, 1)
+      .setOrigin(0)
+      .setDepth(20)
+      .setAlpha(0);
 
     // ------------------------------------------------------------ player
-    this.player = this.physics.add.sprite(150, this.groundTop, "kiwi_run1");
+    this.player = this.physics.add.sprite(PLAYER_X, this.groundTop, "kiwi_run1");
     this.player.setOrigin(0.5, 1);
-    this.player.setCollideWorldBounds(true);
     this.player.setDepth(10);
+    (this.player.body as ArcadeBody).setAllowGravity(false);
     this.standBody();
-    this.physics.add.collider(this.player, groundRect);
 
     // ------------------------------------------------- obstacles & fruit
     this.obstacles = this.physics.add.group({ allowGravity: false, immovable: true });
@@ -102,7 +184,13 @@ export class RunScene extends Phaser.Scene {
 
     this.physics.add.overlap(this.player, this.obstacles, (_p, obj) => {
       if (this.phase !== "running") return;
-      const killer = (obj as Phaser.GameObjects.Sprite).getData("killer") as Killer;
+      const o = obj as Obstacle;
+      if (o.getData("smashed")) return;
+      const killer = o.getData("killer") as Killer;
+      if (this.sliding && killer !== "rock") {
+        this.smash(o, `+${SMASH_POINTS}`);
+        return;
+      }
       this.die(killer);
     });
 
@@ -134,9 +222,21 @@ export class RunScene extends Phaser.Scene {
     });
     this.dust.setDepth(11);
 
+    this.slideDust = this.add.particles(0, 0, "dust", {
+      speed: { min: 40, max: 120 },
+      angle: { min: 160, max: 200 },
+      frequency: 45,
+      lifespan: 420,
+      scale: { start: 1.1, end: 0.3 },
+      alpha: { start: 0.9, end: 0 },
+    });
+    this.slideDust.setDepth(11);
+    this.slideDust.startFollow(this.player, -22, -4);
+    this.slideDust.stop();
+
     this.sparks = this.add.particles(0, 0, "spark", {
-      speed: { min: 40, max: 140 },
-      lifespan: 320,
+      speed: { min: 40, max: 160 },
+      lifespan: 340,
       scale: { start: 1, end: 0 },
       emitting: false,
     });
@@ -148,12 +248,15 @@ export class RunScene extends Phaser.Scene {
     if (kb) {
       // Event-driven, not polled: JustDown() misses key taps shorter than one
       // frame (keyup clears the flag before update runs).
-      this.jumpKeys = [K.SPACE, K.UP, K.W].map((k) => kb.addKey(k));
-      this.jumpKeys.forEach((key) => {
-        key.on("down", () => this.pressJump());
-        key.on("up", () => this.cutJump());
-      });
+      [K.SPACE, K.UP, K.W]
+        .map((k) => kb.addKey(k))
+        .forEach((key) => {
+          key.on("down", () => this.pressJump());
+          key.on("up", () => this.cutJump());
+        });
       this.duckKeys = [K.DOWN, K.S].map((k) => kb.addKey(k));
+      kb.on("keydown-E", () => this.callHelper());
+      kb.on("keydown-ENTER", () => this.callHelper());
       kb.on("keydown-M", () => {
         this.game.events.emit("music", toggleMusic());
       });
@@ -161,7 +264,10 @@ export class RunScene extends Phaser.Scene {
     this.input.on("pointerdown", () => this.pressJump());
     this.input.on("pointerup", () => this.cutJump());
 
-    // ready state: kiwi breathes while waiting
+    // ready state
+    this.terrain.reset(0);
+    this.drawGround();
+    this.player.setY(this.gy(PLAYER_X));
     this.phase = "ready";
     this.idleTween = this.tweens.add({
       targets: this.player,
@@ -183,45 +289,91 @@ export class RunScene extends Phaser.Scene {
     }
 
     if (this.phase === "dead") {
-      // let the launched kiwi tumble off screen; nothing else moves
+      this.vy += GRAVITY * dt;
+      this.player.y += this.vy * dt;
       return;
     }
 
     // ------------------------------------------------------------ running
-    this.speed = Math.min(MAX_SPEED, this.speed + ACCEL * dt);
-    this.distance += this.speed * dt;
-    this.scroll(this.speed * dt);
+    this.terrain.ensure(this.distance + this.scale.width + 600);
+    this.terrain.prune(this.distance - 700);
 
-    const body = this.player.body as ArcadeBody;
-    const grounded = body.blocked.down || body.touching.down;
+    const slope = this.slopeAtPlayer();
     const duckHeld = this.duckKeys.some((k) => k.isDown);
 
-    // fast fall: holding down mid-air slams the kiwi back to the ground
-    if (!grounded && duckHeld) {
-      body.velocity.y = Math.max(body.velocity.y, FAST_FALL_VY);
+    // sliding happens ONLY while the player holds duck
+    const wasSliding = this.sliding;
+    this.updateSlideState(duckHeld, slope);
+    if (this.sliding && !wasSliding) {
+      sfx.slide();
+      this.slideDust.start();
+      this.player.setTint(0xffe9a0);
+    } else if (!this.sliding && wasSliding) {
+      this.slideDust.stop();
+      this.player.clearTint();
     }
 
-    if (grounded) {
-      this.airFlaps = 1;
-      this.setDuck(duckHeld);
+    // slope affects speed: uphill drags, downhill slides are fast
+    let slopeFactor = 1;
+    if (this.grounded) {
+      slopeFactor =
+        slope > 0
+          ? 1 + slope * (this.sliding ? 1.7 : 0.3)
+          : 1 + slope * 0.85;
+      slopeFactor = Phaser.Math.Clamp(slopeFactor, 0.7, 1.8);
+    }
+
+    this.speed = Math.min(MAX_SPEED, this.speed + ACCEL * dt);
+    const eff = this.speed * slopeFactor;
+    this.distance += eff * dt;
+    this.scroll(eff * dt);
+    this.checkBiome();
+    this.drawGround();
+
+    // --------------------------------------------- player vertical motion
+    if (this.grounded) {
+      const newY = this.gy(PLAYER_X);
+      const groundVy = (newY - this.player.y) / dt;
+      const crestLaunch = this.prevGroundVy < -140 && groundVy > 40;
+      const cliffDrop = groundVy > 620;
+      if (crestLaunch || cliffDrop) {
+        this.grounded = false;
+        this.vy =
+          this.prevGroundVy < 0
+            ? this.prevGroundVy * 1.05 - (this.sliding ? 100 : 0)
+            : 80;
+        if (crestLaunch && this.vy < -200) sfx.boing();
+      } else {
+        this.player.y = newY;
+        this.prevGroundVy = groundVy;
+      }
     } else {
-      this.setDuck(false);
+      this.vy += GRAVITY * dt;
+      if (duckHeld) this.vy = Math.max(this.vy, FAST_FALL_VY);
+      this.player.y += this.vy * dt;
+      const groundY = this.gy(PLAYER_X);
+      if (this.player.y >= groundY) {
+        this.player.y = groundY;
+        this.grounded = true;
+        this.vy = 0;
+        this.prevGroundVy = 0;
+        this.airFlaps = 1;
+        this.dust.explode(6, this.player.x, this.player.y - 2);
+        sfx.thump();
+        this.player.setScale(1.12, 0.86);
+        this.tweens.add({ targets: this.player, scaleX: 1, scaleY: 1, duration: 120 });
+      }
     }
 
-    if (this.wasAirborne && grounded) {
-      this.dust.explode(6, this.player.x, this.player.y - 2);
-      sfx.thump();
-      this.player.setScale(1.12, 0.86);
-      this.tweens.add({ targets: this.player, scaleX: 1, scaleY: 1, duration: 120 });
-    }
-    this.wasAirborne = !grounded;
+    // ------------------------------------------------- texture & posture
+    const wantDuckPose = this.grounded && (this.sliding || duckHeld);
+    this.setDuck(wantDuckPose);
 
-    // player texture / run animation
     if (!this.ducking) {
-      if (!grounded) {
+      if (!this.grounded) {
         this.setPlayerTexture("kiwi_jump");
       } else {
-        const stepDur = Phaser.Math.Clamp(0.18 - this.speed / 6000, 0.08, 0.18);
+        const stepDur = Phaser.Math.Clamp(0.18 - eff / 6000, 0.07, 0.18);
         this.runAnimT += dt;
         if (this.runAnimT >= stepDur) {
           this.runAnimT = 0;
@@ -231,36 +383,57 @@ export class RunScene extends Phaser.Scene {
       }
     }
 
-    // enemy walk/flap animation
+    // tilt with the terrain
+    const targetAngle = this.grounded
+      ? Phaser.Math.RadToDeg(Math.atan(slope)) * 0.7
+      : Phaser.Math.Clamp(this.vy * 0.02, -12, 14);
+    this.player.angle += (targetAngle - this.player.angle) * Math.min(1, 12 * dt);
+
+    // ------------------------------------------------- world object flow
     this.enemyAnimT += dt;
     if (this.enemyAnimT >= 0.13) {
       this.enemyAnimT = 0;
       this.enemyFrameB = !this.enemyFrameB;
     }
 
-    // move obstacles
-    this.obstacles.children.iterate((child) => {
-      const o = child as Phaser.Physics.Arcade.Sprite;
+    // iterate over copies — destroying/removing while iterating the live
+    // group set makes Phaser hand us undefined children
+    for (const child of [...this.obstacles.getChildren()]) {
+      const o = child as Obstacle;
       const mul = (o.getData("vxMul") as number) ?? 1;
-      o.x -= this.speed * mul * dt;
-      const baseY = o.getData("baseY") as number | undefined;
-      if (baseY !== undefined) {
-        o.y = baseY + Math.sin(this.time.now * 0.008 + (o.getData("bobPhase") as number)) * 4;
+      o.x -= eff * mul * dt;
+      if (o.getData("killer") === "hawk") {
+        o.y =
+          this.gy(o.x) -
+          52 +
+          Math.sin(this.time.now * 0.008 + (o.getData("bobPhase") as number)) * 4;
+      } else {
+        o.y = this.gy(o.x);
       }
       const frames = o.getData("frames") as [string, string] | undefined;
       if (frames) o.setTexture(frames[this.enemyFrameB ? 1 : 0]);
       if (o.x < -150) o.destroy();
-      return true;
-    });
+    }
 
-    // move fruit
-    this.fruits.children.iterate((child) => {
+    for (const child of [...this.fruits.getChildren()]) {
       const f = child as Phaser.Physics.Arcade.Sprite;
-      f.x -= this.speed * dt;
+      f.x -= eff * dt;
+      f.y = this.gy(f.x) - (f.getData("hover") as number);
       f.rotation += 2.2 * dt;
       if (f.x < -60) f.destroy();
-      return true;
-    });
+    }
+
+    for (let i = this.decos.length - 1; i >= 0; i--) {
+      const d = this.decos[i];
+      d.x -= eff * dt;
+      d.y = this.gy(d.x) + 3;
+      if (d.x < -80) {
+        d.destroy();
+        this.decos.splice(i, 1);
+      }
+    }
+
+    this.updateHelper(dt);
 
     // score
     const score = this.currentScore();
@@ -270,11 +443,95 @@ export class RunScene extends Phaser.Scene {
     }
   }
 
+  private updateSlideState(duckHeld: boolean, slope: number) {
+    if (!this.grounded || !duckHeld || this.phase !== "running") {
+      this.sliding = false;
+      return;
+    }
+    const now = this.time.now;
+    if (slope > SLIDE_SLOPE) {
+      // downhill: slide for as long as the key is held
+      this.sliding = true;
+      return;
+    }
+    if (now < this.slideBurstUntil) {
+      this.sliding = true;
+      return;
+    }
+    if (this.sliding && now > this.slideCooldownAt) {
+      // flat ground: only a short burst, then cooldown — plain duck after
+      this.sliding = false;
+      return;
+    }
+    if (!this.sliding && now > this.slideCooldownAt) {
+      this.slideBurstUntil = now + 450;
+      this.slideCooldownAt = now + 1600;
+      this.sliding = true;
+      return;
+    }
+    this.sliding = false;
+  }
+
   private scroll(px: number) {
     this.clouds.tilePositionX += px * 0.08;
-    this.hillsFar.tilePositionX += px * 0.18;
-    this.hillsNear.tilePositionX += px * 0.45;
-    this.groundTile.tilePositionX += px;
+    this.farA.tilePositionX += px * 0.18;
+    this.farB.tilePositionX += px * 0.18;
+    this.nearA.tilePositionX += px * 0.45;
+    this.nearB.tilePositionX += px * 0.45;
+  }
+
+  private drawGround() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const [grass, grassDark, dirt] = this.groundColors;
+    const g = this.groundGfx;
+    g.clear();
+
+    const pts: Phaser.Types.Math.Vector2Like[] = [];
+    for (let x = -16; x <= w + 16; x += 12) {
+      pts.push({ x, y: this.gy(x) });
+    }
+
+    g.fillStyle(dirt, 1);
+    g.beginPath();
+    g.moveTo(-16, h + 40);
+    for (const p of pts) g.lineTo(p.x, p.y);
+    g.lineTo(w + 16, h + 40);
+    g.closePath();
+    g.fillPath();
+
+    g.lineStyle(16, grass, 1);
+    g.strokePoints(pts.map((p) => ({ x: p.x, y: p.y + 6 })), false);
+    g.lineStyle(5, grassDark, 1);
+    g.strokePoints(pts.map((p) => ({ x: p.x, y: p.y + 15 })), false);
+  }
+
+  private checkBiome() {
+    const idx = Math.floor(this.distance / 10 / 600) % BIOMES.length;
+    if (idx === this.biome || this.biomeFading) return;
+    this.biomeFading = true;
+    const b = BIOMES[idx];
+
+    this.farB.setTexture(b.far).setAlpha(0).setVisible(true);
+    this.nearB.setTexture(b.near).setAlpha(0).setVisible(true);
+    this.tweens.add({
+      targets: [this.farB, this.nearB],
+      alpha: 1,
+      duration: 2000,
+      onComplete: () => {
+        this.farA.setTexture(b.far).setAlpha(1);
+        this.nearA.setTexture(b.near).setAlpha(1);
+        this.farB.setVisible(false);
+        this.nearB.setVisible(false);
+        this.biome = idx;
+        this.biomeFading = false;
+      },
+    });
+    this.time.delayedCall(1000, () => {
+      this.groundColors = b.ground;
+    });
+    this.overlay.setFillStyle(b.overlay, 1);
+    this.tweens.add({ targets: this.overlay, alpha: b.overlayAlpha, duration: 2000 });
   }
 
   private currentScore() {
@@ -296,19 +553,16 @@ export class RunScene extends Phaser.Scene {
       return;
     }
 
-    const body = this.player.body as ArcadeBody;
-    const grounded = body.blocked.down || body.touching.down;
-
-    if (this.ducking && grounded) this.setDuck(false);
-
-    if (grounded) {
-      body.velocity.y = JUMP_VY;
+    if (this.grounded) {
+      this.setDuck(false);
+      this.grounded = false;
+      this.vy = JUMP_VY;
       sfx.jump();
       this.player.setScale(0.9, 1.12);
       this.tweens.add({ targets: this.player, scaleX: 1, scaleY: 1, duration: 140 });
     } else if (this.airFlaps > 0) {
       this.airFlaps--;
-      body.velocity.y = FLAP_VY;
+      this.vy = FLAP_VY;
       sfx.flap();
       this.feathers.explode(6, this.player.x, this.player.y - 24);
     }
@@ -316,8 +570,7 @@ export class RunScene extends Phaser.Scene {
 
   private cutJump() {
     if (this.phase !== "running") return;
-    const body = this.player.body as ArcadeBody;
-    if (body.velocity.y < JUMP_CUT_VY) body.velocity.y = JUMP_CUT_VY;
+    if (!this.grounded && this.vy < JUMP_CUT_VY) this.vy = JUMP_CUT_VY;
   }
 
   // ============================================================ player state
@@ -352,38 +605,64 @@ export class RunScene extends Phaser.Scene {
   private resetRun() {
     this.obstacles.clear(true, true);
     this.fruits.clear(true, true);
+    for (const d of this.decos) d.destroy();
+    this.decos = [];
+    this.retireHelper(true);
 
-    const body = this.player.body as ArcadeBody;
-    body.checkCollision.none = false;
-    this.player.setCollideWorldBounds(true);
+    this.terrain.reset(0);
+    this.distance = 0;
+
     this.player.setFlipY(false);
     this.player.setAngle(0);
     this.player.setScale(1);
+    this.player.clearTint();
     this.ducking = false;
+    this.sliding = false;
+    this.slideDust.stop();
     this.setPlayerTexture("kiwi_run1");
     this.standBody();
-    this.player.setPosition(150, this.groundTop);
-    body.setVelocity(0, 0);
+    this.player.setPosition(PLAYER_X, this.gy(PLAYER_X));
+    this.grounded = true;
+    this.vy = 0;
+    this.prevGroundVy = 0;
 
     this.speed = START_SPEED;
-    this.distance = 0;
     this.bonus = 0;
     this.fruitCount = 0;
+    this.fruitsToward = 0;
+    this.helperReady = false;
     this.lastEmittedScore = -1;
     this.airFlaps = 1;
-    this.wasAirborne = false;
     this.comboStep = 0;
+    this.slideBurstUntil = 0;
+    this.slideCooldownAt = 0;
+
+    this.biome = 0;
+    this.biomeFading = false;
+    this.groundColors = BIOMES[0].ground;
+    this.farA.setTexture(BIOMES[0].far).setAlpha(1);
+    this.nearA.setTexture(BIOMES[0].near).setAlpha(1);
+    this.farB.setVisible(false);
+    this.nearB.setVisible(false);
+    this.overlay.setAlpha(0);
+
     this.phase = "running";
     this.safeUntil = this.time.now + 900;
 
     this.game.events.emit("started");
     this.game.events.emit("score", 0);
     this.game.events.emit("fruit", 0);
+    this.game.events.emit("helper", {
+      state: "progress",
+      n: 0,
+      total: FRUIT_PER_HELPER,
+    });
 
     sfx.start();
     startMusic();
     this.scheduleSpawn();
     this.scheduleFruit();
+    this.scheduleDeco();
   }
 
   private die(killer: Killer) {
@@ -393,19 +672,21 @@ export class RunScene extends Phaser.Scene {
 
     this.nextSpawn?.remove(false);
     this.nextFruit?.remove(false);
+    this.nextDeco?.remove(false);
+    this.retireHelper(true);
     stopMusic();
     sfx.die();
 
     this.cameras.main.shake(220, 0.008);
     this.feathers.explode(14, this.player.x, this.player.y - 24);
+    this.slideDust.stop();
+    this.player.clearTint();
 
     // Mario-style death: pop up, spin, tumble off screen
-    const body = this.player.body as ArcadeBody;
-    body.checkCollision.none = true;
-    this.player.setCollideWorldBounds(false);
     this.setPlayerTexture("kiwi_jump");
     this.player.setFlipY(true);
-    body.setVelocity(-60, -560);
+    this.grounded = false;
+    this.vy = -560;
     this.tweens.add({ targets: this.player, angle: 380, duration: 900 });
 
     const score = this.currentScore();
@@ -416,6 +697,186 @@ export class RunScene extends Phaser.Scene {
       this.time.delayedCall(650, () => sfx.record());
     }
     this.game.events.emit("dead", { score, best: this.best, record, killer });
+  }
+
+  // ================================================================ helpers
+  private callHelper() {
+    if (this.phase !== "running" || !this.helperReady || this.helperActive) return;
+    this.helperReady = false;
+    this.helperActive = true;
+    this.helperUntil = this.time.now + HELPER_MS;
+    this.helperSecsShown = Math.ceil(HELPER_MS / 1000);
+    this.helperType = Math.random() < 0.5 ? "kea" : "ranger";
+    sfx.buddyCall();
+
+    if (this.helperType === "kea") {
+      this.helperSprite = this.add
+        .sprite(-60, 180, "kea1")
+        .setDepth(11);
+    } else {
+      this.helperSprite = this.add
+        .sprite(-40, this.gy(0), "ranger1")
+        .setOrigin(0.5, 1)
+        .setDepth(11);
+    }
+    this.game.events.emit("helper", {
+      state: "active",
+      type: this.helperType,
+      secs: this.helperSecsShown,
+    });
+  }
+
+  private updateHelper(dt: number) {
+    if (!this.helperActive || !this.helperSprite) return;
+    const s = this.helperSprite;
+    const now = this.time.now;
+
+    const secs = Math.max(0, Math.ceil((this.helperUntil - now) / 1000));
+    if (secs !== this.helperSecsShown) {
+      this.helperSecsShown = secs;
+      this.game.events.emit("helper", {
+        state: "active",
+        type: this.helperType,
+        secs,
+      });
+    }
+
+    if (this.helperType === "kea") {
+      s.setTexture(this.enemyFrameB ? "kea2" : "kea1");
+      const target = this.nearestSmashable(60);
+      const tx = target ? target.x : 420;
+      const ty = target
+        ? target.y - 8
+        : this.gy(420) - 150 + Math.sin(now * 0.004) * 18;
+      const dx = tx - s.x;
+      const dy = ty - s.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const step = 560 * dt;
+      s.x += (dx / dist) * Math.min(step, dist);
+      s.y += (dy / dist) * Math.min(step, dist);
+      s.setFlipX(dx > 0);
+      if (target && dist < 38) this.smash(target, `SCREE! +${SMASH_POINTS}`);
+    } else {
+      s.setTexture(this.enemyFrameB ? "ranger2" : "ranger1");
+      // bodyguard: sprint to a spot just ahead of the kiwi and hold the line
+      const guardX = PLAYER_X + 90;
+      const dx = guardX - s.x;
+      s.x += Math.sign(dx) * Math.min(420 * dt, Math.abs(dx));
+      s.y = this.gy(s.x);
+      for (const child of [...this.obstacles.getChildren()]) {
+        const o = child as Obstacle;
+        if (
+          !o.getData("smashed") &&
+          o.getData("killer") !== "rock" &&
+          Math.abs(o.x - s.x) < 44
+        ) {
+          this.smash(o, `BONK! +${SMASH_POINTS}`);
+        }
+      }
+    }
+
+    if (now > this.helperUntil) {
+      this.retireHelper(false);
+    }
+  }
+
+  private nearestSmashable(minX: number): Obstacle | undefined {
+    let best: Obstacle | undefined;
+    let bestX = Infinity;
+    for (const child of this.obstacles.getChildren()) {
+      const o = child as Obstacle;
+      if (
+        !o.getData("smashed") &&
+        o.getData("killer") !== "rock" &&
+        o.x > minX &&
+        o.x < bestX
+      ) {
+        best = o;
+        bestX = o.x;
+      }
+    }
+    return best;
+  }
+
+  private retireHelper(instant: boolean) {
+    if (!this.helperActive && !this.helperSprite) return;
+    const s = this.helperSprite;
+    this.helperSprite = undefined;
+    const wasActive = this.helperActive;
+    this.helperActive = false;
+    if (s) {
+      if (instant) {
+        s.destroy();
+      } else {
+        this.tweens.add({
+          targets: s,
+          x: this.scale.width + 120,
+          y: this.helperType === "kea" ? 30 : s.y,
+          duration: 800,
+          onComplete: () => s.destroy(),
+        });
+      }
+    }
+    if (wasActive && this.phase === "running") {
+      this.game.events.emit("helper", { state: "done" });
+      this.maybePromoteHelper();
+    }
+  }
+
+  private maybePromoteHelper() {
+    if (this.helperReady || this.helperActive) return;
+    if (this.fruitsToward >= FRUIT_PER_HELPER) {
+      this.fruitsToward -= FRUIT_PER_HELPER;
+      this.helperReady = true;
+      sfx.buddyReady();
+      this.game.events.emit("helper", { state: "ready" });
+    } else {
+      this.game.events.emit("helper", {
+        state: "progress",
+        n: this.fruitsToward,
+        total: FRUIT_PER_HELPER,
+      });
+    }
+  }
+
+  // ================================================================ smashing
+  private smash(o: Obstacle, label: string) {
+    if (o.getData("smashed")) return;
+    o.setData("smashed", true);
+    this.obstacles.remove(o);
+    sfx.smash();
+    this.sparks.explode(10, o.x, o.y - 12);
+    this.bonus += SMASH_POINTS;
+    this.floater(o.x, o.y - 26, label, "#b33c00");
+    this.tweens.add({
+      targets: o,
+      x: o.x + 150,
+      y: o.y - 190,
+      angle: 640,
+      alpha: 0.1,
+      duration: 620,
+      ease: "quad.out",
+      onComplete: () => o.destroy(),
+    });
+  }
+
+  private floater(x: number, y: number, text: string, color = "#1e5c24") {
+    const txt = this.add
+      .text(x, y, text, {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "16px",
+        fontStyle: "bold",
+        color,
+      })
+      .setOrigin(0.5)
+      .setDepth(12);
+    this.tweens.add({
+      targets: txt,
+      y: y - 46,
+      alpha: 0,
+      duration: 650,
+      onComplete: () => txt.destroy(),
+    });
   }
 
   // ================================================================ spawning
@@ -439,7 +900,7 @@ export class RunScene extends Phaser.Scene {
 
     const pool: { w: number; run: () => void }[] = [
       { w: 3, run: () => this.spawnGround("rat1", "rat2", "rat", x) },
-      { w: 3, run: () => this.spawnGround("rock1", null, "rock", x) },
+      { w: 2.4, run: () => this.spawnGround("rock1", null, "rock", x) },
     ];
     if (m > 120) {
       pool.push(
@@ -456,7 +917,7 @@ export class RunScene extends Phaser.Scene {
     if (m > 300) {
       pool.push(
         { w: 2.5, run: () => this.spawnHawk(x) },
-        { w: 2, run: () => this.spawnGround("rock2", null, "rock", x) }
+        { w: 1.6, run: () => this.spawnGround("rock2", null, "rock", x) }
       );
     }
     if (m > 600) {
@@ -499,7 +960,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   private spawnGround(tex: string, tex2: string | null, killer: Killer, x: number) {
-    const o = this.obstacles.create(x, this.groundTop, tex) as Phaser.Physics.Arcade.Sprite;
+    const o = this.obstacles.create(x, this.gy(x), tex) as Obstacle;
     o.setOrigin(0.5, 1);
     o.setDepth(9);
     o.setData("killer", killer);
@@ -513,13 +974,11 @@ export class RunScene extends Phaser.Scene {
   }
 
   private spawnHawk(x: number) {
-    const baseY = this.groundTop - 50;
-    const o = this.obstacles.create(x, baseY, "hawk1") as Phaser.Physics.Arcade.Sprite;
+    const o = this.obstacles.create(x, this.gy(x) - 52, "hawk1") as Obstacle;
     o.setDepth(9);
     o.setData("killer", "hawk");
     o.setData("vxMul", 1.28);
     o.setData("frames", ["hawk1", "hawk2"]);
-    o.setData("baseY", baseY);
     o.setData("bobPhase", Math.random() * Math.PI * 2);
     const body = o.body as ArcadeBody;
     body.setSize(56, 22);
@@ -539,25 +998,42 @@ export class RunScene extends Phaser.Scene {
     const x0 = this.scale.width + 80;
     const kind = Phaser.Math.Between(0, 2);
     if (kind === 0) {
-      // low line — grab while running
-      for (let i = 0; i < 4; i++) this.spawnFruit(x0 + i * 42, this.groundTop - 44);
+      for (let i = 0; i < 4; i++) this.spawnFruit(x0 + i * 42, 44);
     } else if (kind === 1) {
-      // arc — follows a jump curve
       const n = 5;
       for (let i = 0; i < n; i++) {
         const t = i / (n - 1);
-        this.spawnFruit(x0 + i * 46, this.groundTop - 44 - Math.sin(t * Math.PI) * 110);
+        this.spawnFruit(x0 + i * 46, 44 + Math.sin(t * Math.PI) * 110);
       }
     } else {
-      // high line — needs a jump (or a flap)
-      for (let i = 0; i < 3; i++) this.spawnFruit(x0 + i * 44, this.groundTop - 150);
+      for (let i = 0; i < 3; i++) this.spawnFruit(x0 + i * 44, 150);
     }
   }
 
-  private spawnFruit(x: number, y: number) {
-    const f = this.fruits.create(x, y, "fruit") as Phaser.Physics.Arcade.Sprite;
+  private spawnFruit(x: number, hover: number) {
+    const f = this.fruits.create(x, this.gy(x) - hover, "fruit") as Phaser.Physics.Arcade.Sprite;
     f.setDepth(8);
+    f.setData("hover", hover);
     (f.body as ArcadeBody).setCircle(11);
+  }
+
+  private scheduleDeco() {
+    this.nextDeco?.remove(false);
+    this.nextDeco = this.time.delayedCall(Phaser.Math.Between(420, 1000), () => {
+      if (this.phase !== "running") return;
+      if (this.decos.length < 14) {
+        const texs = BIOMES[this.biome].deco;
+        const tex = texs[Phaser.Math.Between(0, texs.length - 1)];
+        const x = this.scale.width + 60;
+        const d = this.add
+          .image(x, this.gy(x) + 3, tex)
+          .setOrigin(0.5, 1)
+          .setDepth(6)
+          .setScale(Phaser.Math.FloatBetween(0.8, 1.35));
+        this.decos.push(d);
+      }
+      this.scheduleDeco();
+    });
   }
 
   private collectFruit(f: Phaser.Physics.Arcade.Sprite) {
@@ -565,6 +1041,7 @@ export class RunScene extends Phaser.Scene {
     f.destroy();
     this.bonus += 15;
     this.fruitCount++;
+    this.fruitsToward++;
 
     const now = this.time.now;
     this.comboStep = now - this.lastPickupAt < 1600 ? this.comboStep + 1 : 0;
@@ -572,23 +1049,9 @@ export class RunScene extends Phaser.Scene {
     sfx.pickup(this.comboStep);
 
     this.sparks.explode(8, x, y);
-    const txt = this.add
-      .text(x, y - 8, "+15", {
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "16px",
-        fontStyle: "bold",
-        color: "#1e5c24",
-      })
-      .setOrigin(0.5)
-      .setDepth(12);
-    this.tweens.add({
-      targets: txt,
-      y: y - 54,
-      alpha: 0,
-      duration: 650,
-      onComplete: () => txt.destroy(),
-    });
+    this.floater(x, y - 8, "+15");
 
     this.game.events.emit("fruit", this.fruitCount);
+    this.maybePromoteHelper();
   }
 }

@@ -73,6 +73,27 @@ export const sfx = {
       tone(f, 0.14, "square", 0.05, undefined, i * 0.11)
     );
   },
+  smash() {
+    tone(220, 0.12, "square", 0.06, 90);
+    tone(720, 0.06, "square", 0.045, undefined, 0.02);
+  },
+  slide() {
+    tone(90, 0.22, "sawtooth", 0.035, 55);
+  },
+  boing() {
+    tone(150, 0.16, "sine", 0.07, 430);
+    tone(430, 0.12, "sine", 0.05, 240, 0.15);
+  },
+  buddyReady() {
+    [880, 1175, 1568].forEach((f, i) =>
+      tone(f, 0.12, "sine", 0.05, undefined, i * 0.11)
+    );
+  },
+  buddyCall() {
+    [523, 659, 880, 1319].forEach((f, i) =>
+      tone(f, 0.09, "square", 0.05, undefined, i * 0.07)
+    );
+  },
 };
 
 // ------------------------------------------------------------- music loop

@@ -7,6 +7,14 @@ type DeadPayload = {
   killer: "possum" | "rat" | "rock" | "hawk";
 };
 
+type HelperPayload = {
+  state: "progress" | "ready" | "active" | "done";
+  n?: number;
+  total?: number;
+  type?: "kea" | "ranger";
+  secs?: number;
+};
+
 const FONT = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 const BEST_KEY = "kiwirun_best";
 
@@ -37,6 +45,8 @@ export class UIScene extends Phaser.Scene {
   private scoreText!: Phaser.GameObjects.Text;
   private bestText!: Phaser.GameObjects.Text;
   private fruitText!: Phaser.GameObjects.Text;
+  private helperText!: Phaser.GameObjects.Text;
+  private helperTween?: Phaser.Tweens.Tween;
   private musicText!: Phaser.GameObjects.Text;
   private startPanel!: Phaser.GameObjects.Container;
   private overPanel!: Phaser.GameObjects.Container;
@@ -86,6 +96,15 @@ export class UIScene extends Phaser.Scene {
       strokeThickness: 4,
     });
 
+    this.helperText = this.add.text(20, 48, "Buddy 0/8", {
+      fontFamily: FONT,
+      fontSize: "14px",
+      fontStyle: "bold",
+      color: "#cfe8c8",
+      stroke: "#1b3a1e",
+      strokeThickness: 3,
+    });
+
     this.musicText = this.add
       .text(16, this.scale.height - 24, "M music: on", {
         fontFamily: FONT,
@@ -113,6 +132,7 @@ export class UIScene extends Phaser.Scene {
       this.recordTween?.stop();
     });
     g.on("dead", (p: DeadPayload) => this.showGameOver(p));
+    g.on("helper", (p: HelperPayload) => this.showHelper(p));
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       g.off("score");
@@ -120,6 +140,7 @@ export class UIScene extends Phaser.Scene {
       g.off("music");
       g.off("started");
       g.off("dead");
+      g.off("helper");
     });
   }
 
@@ -138,7 +159,7 @@ export class UIScene extends Phaser.Scene {
     const h = this.scale.height;
     const c = this.add.container(w / 2, h / 2 - 14);
 
-    c.add(this.panelBg(600, 320));
+    c.add(this.panelBg(660, 330));
 
     c.add(
       this.add
@@ -164,39 +185,42 @@ export class UIScene extends Phaser.Scene {
 
     const lines = [
       "SPACE / ↑ / click — jump  ·  press again mid-air: FLAP!",
-      "↓ / S — duck (watch out for the falcon!)  ·  mid-air: dive",
-      "Collect kiwifruit: +15 points",
+      "hold ↓ / S — duck  ·  on a downhill: SLIDE & smash pests!",
+      "Rocks are indestructible — jump them, even mid-slide",
+      "8 kiwifruit fill your buddy meter → press E for backup",
     ];
     lines.forEach((s, i) =>
       c.add(
         this.add
-          .text(0, -48 + i * 24, s, {
+          .text(0, -52 + i * 21, s, {
             fontFamily: FONT,
-            fontSize: "14px",
+            fontSize: "13px",
             color: "#ffffff",
           })
           .setOrigin(0.5)
       )
     );
 
-    // enemy line-up
-    const lineup: { tex: string; name: string; scale?: number }[] = [
-      { tex: "kiwi_run1", name: "YOU" },
+    // cast line-up: pests in red, friends in green
+    const lineup: { tex: string; name: string; friend?: boolean }[] = [
+      { tex: "kiwi_run1", name: "YOU", friend: true },
       { tex: "possum1", name: "POSSUM" },
       { tex: "rat1", name: "RAT" },
       { tex: "hawk1", name: "KĀREAREA" },
+      { tex: "kea1", name: "KEA ♥", friend: true },
+      { tex: "ranger1", name: "RANGER ♥", friend: true },
     ];
-    const startX = -210;
+    const startX = -250;
     lineup.forEach((e, i) => {
-      const x = startX + i * 140;
-      c.add(this.add.image(x, 52, e.tex).setScale(e.scale ?? 1));
+      const x = startX + i * 100;
+      c.add(this.add.image(x, 52, e.tex));
       c.add(
         this.add
           .text(x, 92, e.name, {
             fontFamily: FONT,
-            fontSize: "12px",
+            fontSize: "11px",
             fontStyle: "bold",
-            color: i === 0 ? "#9fe066" : "#ffb3a0",
+            color: e.friend ? "#9fe066" : "#ffb3a0",
           })
           .setOrigin(0.5)
       );
@@ -285,6 +309,28 @@ export class UIScene extends Phaser.Scene {
     );
 
     return c;
+  }
+
+  private showHelper(p: HelperPayload) {
+    this.helperTween?.stop();
+    this.helperText.setAlpha(1);
+    if (p.state === "ready") {
+      this.helperText.setText("E = call a friend!").setColor("#ffe066");
+      this.helperTween = this.tweens.add({
+        targets: this.helperText,
+        alpha: 0.3,
+        duration: 400,
+        yoyo: true,
+        repeat: -1,
+      });
+    } else if (p.state === "active") {
+      const name = p.type === "kea" ? "KEA" : "RANGER";
+      this.helperText.setText(`${name}! ${p.secs}s`).setColor("#ffb35e");
+    } else {
+      this.helperText
+        .setText(`Buddy ${p.n ?? 0}/${p.total ?? 8}`)
+        .setColor("#cfe8c8");
+    }
   }
 
   private showGameOver(p: DeadPayload) {
