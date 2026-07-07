@@ -2,6 +2,8 @@
   "name": "kiwirun",
   "main": "worker/index.js",
   "compatibility_date": "2026-06-20",
+  // kiwirun.nz is attached as a custom domain via the Cloudflare dashboard
+  // (parked DNS records blocked wrangler from provisioning it here)
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

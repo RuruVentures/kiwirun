@@ -10,6 +10,9 @@ export type SubmitResult =
   | { ok: true; top: ScoreRow[]; rank: number }
   | { ok: false; reason: "name" | "rate" | "score" | "token" | "offline" };
 
+/** Public game URL — used for sharing. */
+export const GAME_URL = "https://kiwirun.nz/";
+
 const API = "https://kiwirun.christoph-koch.workers.dev/api/scores";
 
 /** "DE" -> 🇩🇪 (renders as letters on Windows, real flags on phones). */

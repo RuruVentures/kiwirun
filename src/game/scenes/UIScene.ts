@@ -4,6 +4,7 @@ import {
   submitScore,
   qualifies,
   flagEmoji,
+  GAME_URL,
   type ScoreRow,
 } from "../leaderboard";
 
@@ -599,7 +600,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private shareScore() {
-    const url = "https://kiwirun.christoph-koch.workers.dev/";
+    const url = GAME_URL;
     const text = `🥝 I scored ${this.lastScore} points in KIWI RUN! Think you can beat me?`;
     const nav = navigator;
     if (typeof nav.share === "function") {

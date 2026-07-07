@@ -83,9 +83,12 @@ export class RunScene extends Phaser.Scene {
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private slideDust!: Phaser.GameObjects.Particles.ParticleEmitter;
 
+  private jumpKeys: Phaser.Input.Keyboard.Key[] = [];
   private duckKeys: Phaser.Input.Keyboard.Key[] = [];
   private touchDuck = false;
   private touchDuckId = -1;
+  private touchJump = false;
+  private touchJumpId = -1;
 
   private terrain = new Terrain();
   private phase: GamePhase = "ready";
@@ -127,8 +130,11 @@ export class RunScene extends Phaser.Scene {
   private helperSecsShown = 0;
   private fruitsToward = 0;
   private planeActive = false;
-  private bombTimer?: Phaser.Time.TimerEvent;
   private bombs: { img: Phaser.GameObjects.Image; vy: number }[] = [];
+  private nextBombAt = 0;
+  private bullets: Phaser.GameObjects.Image[] = [];
+  private nextShotAt = 0;
+  private lastShotAt = 0;
 
   private runAnimT = 0;
   private runFrameB = false;
@@ -286,12 +292,11 @@ export class RunScene extends Phaser.Scene {
     if (kb) {
       // Event-driven, not polled: JustDown() misses key taps shorter than one
       // frame (keyup clears the flag before update runs).
-      [K.SPACE, K.UP, K.W]
-        .map((k) => kb.addKey(k))
-        .forEach((key) => {
-          key.on("down", () => this.pressJump());
-          key.on("up", () => this.cutJump());
-        });
+      this.jumpKeys = [K.SPACE, K.UP, K.W].map((k) => kb.addKey(k));
+      this.jumpKeys.forEach((key) => {
+        key.on("down", () => this.pressJump());
+        key.on("up", () => this.cutJump());
+      });
       this.duckKeys = [K.DOWN, K.S].map((k) => kb.addKey(k));
       kb.on("keydown-E", () => this.callHelper());
       kb.on("keydown-ENTER", () => this.callHelper());
@@ -312,6 +317,8 @@ export class RunScene extends Phaser.Scene {
         this.touchDuckId = p.id;
         return;
       }
+      this.touchJump = true; // held-state used to steer the plane up
+      this.touchJumpId = p.id;
       this.pressJump();
     });
     this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
@@ -319,6 +326,10 @@ export class RunScene extends Phaser.Scene {
         this.touchDuck = false;
         this.touchDuckId = -1;
         return;
+      }
+      if (p.id === this.touchJumpId) {
+        this.touchJump = false;
+        this.touchJumpId = -1;
       }
       this.cutJump();
     });
@@ -508,8 +519,9 @@ export class RunScene extends Phaser.Scene {
       }
     }
 
-    this.updateHelper(dt);
+    this.updateHelper(dt, eff);
     this.updateBombs(dt, eff);
+    this.updateBullets(dt);
 
     // score
     const score = this.currentScore();
@@ -1081,27 +1093,22 @@ export class RunScene extends Phaser.Scene {
     this.grounded = true;
     sfx.engine();
 
-    this.helperSprite = this.add.sprite(-120, PLANE_Y, "plane1").setDepth(11);
+    this.helperSprite = this.add
+      .sprite(-140, PLANE_Y, "plane1")
+      .setDepth(11)
+      .setScale(1.5); // big enough to see the pilot, per kids' request
     this.tweens.add({
       targets: this.helperSprite,
       x: 250,
       duration: 900,
       ease: "sine.out",
     });
-    this.bombTimer = this.time.addEvent({
-      delay: 700,
-      loop: true,
-      callback: () => {
-        if (this.planeActive && this.helperSprite && this.phase === "running") {
-          this.dropBomb();
-        }
-      },
-    });
+    this.nextBombAt = this.time.now + 900;
   }
 
   private dropBomb() {
     const s = this.helperSprite!;
-    const img = this.add.image(s.x + 26, s.y + 26, "bomb").setDepth(9);
+    const img = this.add.image(s.x + 38, s.y + 34, "bomb").setDepth(9);
     this.bombs.push({ img, vy: 60 });
     sfx.bombDrop();
   }
@@ -1117,6 +1124,31 @@ export class RunScene extends Phaser.Scene {
         this.explodeBomb(b.img.x, this.gy(b.img.x));
         b.img.destroy();
         this.bombs.splice(i, 1);
+      }
+    }
+  }
+
+  private updateBullets(dt: number) {
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const b = this.bullets[i];
+      b.x += 720 * dt;
+      b.y = this.gy(b.x) - 34; // tracer skims the terrain
+      let hit = false;
+      for (const child of [...this.obstacles.getChildren()]) {
+        const o = child as Obstacle;
+        if (
+          !o.getData("smashed") &&
+          o.getData("killer") !== "rock" &&
+          Math.abs(o.x - b.x) < 28
+        ) {
+          this.smash(o, `PEW! +${SMASH_POINTS}`);
+          hit = true;
+          break;
+        }
+      }
+      if (hit || b.x > this.scale.width + 50) {
+        b.destroy();
+        this.bullets.splice(i, 1);
       }
     }
   }
@@ -1138,7 +1170,7 @@ export class RunScene extends Phaser.Scene {
     }
   }
 
-  private updateHelper(dt: number) {
+  private updateHelper(dt: number, eff: number) {
     if (!this.helperActive || !this.helperSprite) return;
     const s = this.helperSprite;
     const now = this.time.now;
@@ -1169,20 +1201,33 @@ export class RunScene extends Phaser.Scene {
       s.setFlipX(dx > 0);
       if (target && dist < 38) this.smash(target, `SCREE! +${SMASH_POINTS}`);
     } else if (this.helperType === "ranger") {
-      s.setTexture(this.enemyFrameB ? "ranger2" : "ranger1");
-      // bodyguard: sprint to a spot just ahead of the kiwi and hold the line
+      // recoil frame right after each shot, otherwise aiming pose
+      s.setTexture(now - this.lastShotAt < 140 ? "ranger2" : "ranger1");
+      // bodyguard: hold the line ahead of the kiwi and pick off the pests
       const guardX = PLAYER_X + 90;
       const dx = guardX - s.x;
       s.x += Math.sign(dx) * Math.min(420 * dt, Math.abs(dx));
       s.y = this.gy(s.x);
+      if (now > this.nextShotAt) {
+        const target = this.nearestSmashable(s.x + 50);
+        if (target && target.x < this.scale.width + 60) {
+          this.nextShotAt = now + 550;
+          this.lastShotAt = now;
+          this.bullets.push(
+            this.add.image(s.x + 40, this.gy(s.x + 40) - 34, "pellet").setDepth(9)
+          );
+          sfx.shoot();
+        }
+      }
+      // rifle-butt safety whack for anything that gets too close
       for (const child of [...this.obstacles.getChildren()]) {
         const o = child as Obstacle;
         if (
           !o.getData("smashed") &&
           o.getData("killer") !== "rock" &&
-          Math.abs(o.x - s.x) < 44
+          Math.abs(o.x - s.x) < 36
         ) {
-          this.smash(o, `BONK! +${SMASH_POINTS}`);
+          this.smash(o, `WHACK! +${SMASH_POINTS}`);
         }
       }
     } else if (this.helperType === "quad") {
@@ -1203,10 +1248,43 @@ export class RunScene extends Phaser.Scene {
         }
       }
     } else {
-      // plane: cruise above everything, bombs do the work
+      // plane: steer with jump/duck, scoop up fruit, drop aimed bombs
       s.setTexture(this.enemyFrameB ? "plane2" : "plane1");
-      if (!this.tweens.isTweening(s)) {
-        s.y = PLANE_Y + Math.sin(now * 0.003) * 10;
+      const upHeld = this.touchJump || this.jumpKeys.some((k) => k.isDown);
+      const downHeld = this.touchDuck || this.duckKeys.some((k) => k.isDown);
+      let vy: number;
+      if (upHeld && !downHeld) vy = -240;
+      else if (downHeld && !upHeld) vy = 240;
+      else vy = Phaser.Math.Clamp((PLANE_Y - s.y) * 0.8, -60, 60);
+      s.y = Phaser.Math.Clamp(s.y + vy * dt, 70, this.gy(s.x) - 85);
+      s.angle = Phaser.Math.Clamp(vy * 0.03, -9, 9);
+
+      // scoop fruit mid-air — that's the whole point of steering!
+      for (const child of [...this.fruits.getChildren()]) {
+        const f = child as Phaser.Physics.Arcade.Sprite;
+        if (Math.abs(f.x - s.x) < 48 && Math.abs(f.y - s.y) < 42) {
+          this.collectFruit(f);
+        }
+      }
+
+      // aimed bombing: only drop when the fall-time math says a pest
+      // will actually be inside the blast radius
+      if (now > this.nextBombAt && s.x > 200 && !this.tweens.isTweening(s)) {
+        const dropX = s.x + 38;
+        const h = Math.max(60, this.gy(dropX) - (s.y + 34));
+        const t = Math.sqrt((2 * h) / 1100);
+        const impactX = dropX - eff * 0.25 * t;
+        for (const child of this.obstacles.getChildren()) {
+          const o = child as Obstacle;
+          if (o.getData("smashed") || o.getData("killer") === "rock") continue;
+          const mul = (o.getData("vxMul") as number) ?? 1;
+          const predicted = o.x - eff * mul * t;
+          if (Math.abs(predicted - impactX) < 55) {
+            this.dropBomb();
+            this.nextBombAt = now + 450;
+            break;
+          }
+        }
       }
     }
 
@@ -1240,11 +1318,11 @@ export class RunScene extends Phaser.Scene {
     const wasActive = this.helperActive;
     this.helperActive = false;
 
-    // plane: drop the kiwi back onto the trail
-    this.bombTimer?.remove(false);
-    this.bombTimer = undefined;
+    // clean up any leftover ordnance
     for (const b of this.bombs) b.img.destroy();
     this.bombs = [];
+    for (const b of this.bullets) b.destroy();
+    this.bullets = [];
     if (this.planeActive) {
       this.planeActive = false;
       this.player.setVisible(true);

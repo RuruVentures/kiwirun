@@ -261,37 +261,34 @@ const KEA_B = [
 ];
 
 // ------------------------------------------------- DOC ranger (friendly!)
-// Comes with a baseball bat. Frame A: bat raised. Frame B: full swing.
+// Real NZ predator control: the ranger carries a rifle and shoots the
+// pests. Frame A: aiming. Frame B: recoil + muzzle flash.
 const RANGER_A = [
-  "............BB",
-  "...........BB.",
-  "..........BB..",
-  "...UUUUU..BB..",
-  "..UUUUUUU.B...",
-  "...BBBB...B...",
-  "...BkBB..B....",
-  "..uuuuuuBB....",
-  ".uuuuuuuu.....",
-  "..uuuuuu......",
-  "...UUUU.......",
-  "...U..U.......",
-  "..HH..HH......",
+  "...UUUUU........",
+  "..UUUUUUU.......",
+  "...BBBB.........",
+  "...BkBB.........",
+  "..uuuuuu........",
+  ".uuuuuuuBB......",
+  ".uuuukkkkkkkkkk.",
+  "..uuuuHH........",
+  "...UUUU.........",
+  "...U..U.........",
+  "..HH..HH........",
 ];
 
 const RANGER_B = [
-  "..............",
-  "..............",
-  "..............",
-  "...UUUUU......",
-  "..UUUUUUU.....",
-  "...BBBB.......",
-  "...BkBB.......",
-  "..uuuuuu......",
-  ".uuuuuuBBBBBBB",
-  "..uuuuuu......",
-  "...UUUU.......",
-  "....UU........",
-  "...HH.HH......",
+  "...UUUUU........",
+  "..UUUUUUU.......",
+  "...BBBB.........",
+  "...BkBB.........",
+  "..uuuuuu........",
+  ".uuuuuuuBB......",
+  ".uuukkkkkkkkkkyy",
+  "..uuuuHH......y.",
+  "...UUUU.........",
+  "....UU..........",
+  "...HH.HH........",
 ];
 
 // ---------------------------------------------- quad bike (ultra buddy!)
@@ -475,8 +472,9 @@ export function makeSprites(scene: Phaser.Scene) {
   pixelTexture(scene, "spark", SPARK, 2);
   pixelTexture(scene, "kea1", KEA_A);
   pixelTexture(scene, "kea2", KEA_B);
-  pixelTexture(scene, "ranger1", RANGER_A);
-  pixelTexture(scene, "ranger2", RANGER_B);
+  pixelTexture(scene, "ranger1", RANGER_A, 4); // bigger, per kids' request
+  pixelTexture(scene, "ranger2", RANGER_B, 4);
+  pixelTexture(scene, "pellet", ["yyy"], 2);
   pixelTexture(scene, "quad1", QUAD_A);
   pixelTexture(scene, "quad2", QUAD_B);
   pixelTexture(scene, "plane1", PLANE_A);
