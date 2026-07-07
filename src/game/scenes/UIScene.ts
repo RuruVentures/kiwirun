@@ -18,8 +18,15 @@ type HelperPayload = {
   state: "progress" | "ready" | "active" | "done";
   n?: number;
   total?: number;
-  type?: "kea" | "ranger";
+  type?: "kea" | "ranger" | "quad" | "plane";
   secs?: number;
+};
+
+const HELPER_NAMES: Record<string, string> = {
+  kea: "KEA",
+  ranger: "RANGER",
+  quad: "QUAD BIKE",
+  plane: "✈ KIWI AIR FORCE",
 };
 
 const FONT = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -256,8 +263,8 @@ export class UIScene extends Phaser.Scene {
       "Hold duck on a DOWNHILL  —  slide & smash",
       "pests for +25  ·  rocks NEVER break: jump!",
       "Slide over a hill crest for big air  —  boing!",
-      "Kiwifruit = +15  ·  8 of them = buddy ready:",
-      "a kea or a ranger clears the road for 10 s",
+      "Kiwifruit = +15  ·  8 of them = a random buddy:",
+      "kea, ranger, QUAD… and legends tell of a plane ✈",
     ];
 
     const col = (
@@ -507,14 +514,27 @@ export class UIScene extends Phaser.Scene {
     this.rankText.setText("submitting…");
     void submitScore(name, score).then((res) => {
       if (myDeath !== this.deathCount || !this.overPanel.visible) return;
-      if (!res) {
-        this.rankText.setText("submit failed — offline?");
+      if (res.ok) {
+        this.renderTop(res.top, { name, score });
+        this.rankText.setText(
+          res.rank === 1
+            ? "👑 WORLD #1, KIWI LEGEND!"
+            : `You're world #${res.rank}!`
+        );
         return;
       }
-      this.renderTop(res.top, { name, score });
-      this.rankText.setText(
-        res.rank === 1 ? "👑 WORLD #1, KIWI LEGEND!" : `You're world #${res.rank}!`
-      );
+      if (res.reason === "name") {
+        this.rankText.setText("That name won't fly 😅 pick another!");
+        this.time.delayedCall(900, () => {
+          if (myDeath === this.deathCount && this.overPanel.visible) {
+            this.openEntry(score);
+          }
+        });
+      } else if (res.reason === "rate") {
+        this.rankText.setText("Whoa, slow down — try again in a bit!");
+      } else {
+        this.rankText.setText("Submit failed — score not accepted.");
+      }
     });
   }
 
@@ -548,7 +568,7 @@ export class UIScene extends Phaser.Scene {
         repeat: -1,
       });
     } else if (p.state === "active") {
-      const name = p.type === "kea" ? "KEA" : "RANGER";
+      const name = HELPER_NAMES[p.type ?? "kea"] ?? "BUDDY";
       this.helperText.setText(`${name}! ${p.secs}s`).setColor("#ffb35e");
     } else {
       this.helperText

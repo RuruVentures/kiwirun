@@ -102,6 +102,17 @@ export const sfx = {
       tone(f, 0.09, "square", 0.05, undefined, i * 0.07)
     );
   },
+  engine() {
+    tone(70, 0.5, "sawtooth", 0.05, 130);
+    tone(90, 0.4, "square", 0.035, 160, 0.1);
+  },
+  bombDrop() {
+    tone(1200, 0.4, "sine", 0.04, 350);
+  },
+  bombHit() {
+    tone(140, 0.2, "square", 0.07, 45);
+    tone(70, 0.28, "sawtooth", 0.06, 30, 0.03);
+  },
 };
 
 // ------------------------------------------------------------- music loop

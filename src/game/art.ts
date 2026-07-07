@@ -32,6 +32,7 @@ const PAL: Record<string, number> = {
   o: 0xe07830, // kea orange underwing
   u: 0x9a8a5a, // ranger khaki
   U: 0x3f5a35, // ranger DOC green
+  R: 0xd23f2f, // quad / biplane red
 };
 
 export function pixelTexture(
@@ -293,6 +294,95 @@ const RANGER_B = [
   "...HH.HH......",
 ];
 
+// ---------------------------------------------- quad bike (ultra buddy!)
+// Ranger-style driver on a chunky red quad, facing the incoming pests.
+const QUAD_A = [
+  "......UUUU..........",
+  "......UUUUU.........",
+  ".......BBB..........",
+  "......uuuuu.........",
+  ".....uuuuuuu........",
+  "....RRRRRRRRRR......",
+  "...RRRRRRRRRRRR.....",
+  "..RRRRRRRRRRRRRR....",
+  ".kkk..RRRR...kkk....",
+  "kkkkk.RRRR..kkkkk...",
+  "kSkkk.......kSkkk...",
+  "kkkkk.......kkkkk...",
+  ".kkk.........kkk....",
+];
+
+const QUAD_B = [
+  "......UUUU..........",
+  "......UUUUU.........",
+  ".......BBB..........",
+  "......uuuuu.........",
+  ".....uuuuuuu........",
+  "....RRRRRRRRRR......",
+  "...RRRRRRRRRRRR.....",
+  "..RRRRRRRRRRRRRR....",
+  ".kkk..RRRR...kkk....",
+  "kkkkk.RRRR..kkkkk...",
+  "kkkSk.......kkkSk...",
+  "kkkkk.......kkkkk...",
+  ".kkk.........kkk....",
+];
+
+// ------------------------------- the legendary biplane (easter egg buddy)
+// Kiwi with a leather aviator cap in a red double-decker, prop spinning.
+const PLANE_A = [
+  "....RRRRRRRRRRRRRR........",
+  "......s....s....s.........",
+  "..........HHHH............",
+  ".........Hbbkw............",
+  ".........bbbbBBBB.........",
+  "..RR..yyyyyyyyyyyy....w...",
+  ".RRR..yyyyyyyyyyyyy...ww..",
+  "..RR..yyyyyyyyyyyy....w...",
+  "......s....s....s.........",
+  "....RRRRRRRRRRRRRR........",
+  ".........kk..kk...........",
+];
+
+const PLANE_B = [
+  "....RRRRRRRRRRRRRR........",
+  "......s....s....s.........",
+  "..........HHHH............",
+  ".........Hbbkw............",
+  ".........bbbbBBBB.........",
+  "..RR..yyyyyyyyyyyy....ww..",
+  ".RRR..yyyyyyyyyyyyy....w..",
+  "..RR..yyyyyyyyyyyy....ww..",
+  "......s....s....s.........",
+  "....RRRRRRRRRRRRRR........",
+  ".........kk..kk...........",
+];
+
+const BOMB = [
+  "..kk..",
+  ".kkkk.",
+  ".kkkk.",
+  ".kkkk.",
+  "..kk..",
+  "..tt..",
+  ".t..t.",
+];
+
+// little kiwi ghost — dark outline so it reads against the bright sky
+const GHOST = [
+  "...GGGGG....",
+  "..GwwwwwG...",
+  ".GwwwwwwwG..",
+  ".GwkwwkwwG..",
+  ".GwwwwwwwGG.",
+  ".GwwwwBBBBG.",
+  ".GwwwwwwwG..",
+  ".GwwwwwwwG..",
+  "..GwwwwwG...",
+  ".GwGGwGGwG..",
+  "..G..G..G...",
+];
+
 // ------------------------------------------------------- vegetation deco
 const TREE_FERN = [
   "....N...N...N...",
@@ -387,6 +477,12 @@ export function makeSprites(scene: Phaser.Scene) {
   pixelTexture(scene, "kea2", KEA_B);
   pixelTexture(scene, "ranger1", RANGER_A);
   pixelTexture(scene, "ranger2", RANGER_B);
+  pixelTexture(scene, "quad1", QUAD_A);
+  pixelTexture(scene, "quad2", QUAD_B);
+  pixelTexture(scene, "plane1", PLANE_A);
+  pixelTexture(scene, "plane2", PLANE_B);
+  pixelTexture(scene, "bomb", BOMB, 2);
+  pixelTexture(scene, "ghost", GHOST);
   pixelTexture(scene, "deco_treefern", TREE_FERN);
   pixelTexture(scene, "deco_cabbage", CABBAGE_TREE);
   pixelTexture(scene, "deco_flax", FLAX);
