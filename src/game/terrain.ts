@@ -11,7 +11,7 @@ import Phaser from "phaser";
 type Seg = { x0: number; len: number; h0: number; h1: number };
 
 const H_MIN = -85; // highest hill
-const H_MAX = 58; // deepest valley
+const H_MAX = 42; // deepest valley — keep a fat dirt strip visible below
 
 export class Terrain {
   private segs: Seg[] = [];

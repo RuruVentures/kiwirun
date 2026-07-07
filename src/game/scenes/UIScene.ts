@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { fetchTop, submitScore, qualifies, type ScoreRow } from "../leaderboard";
 
 type DeadPayload = {
   score: number;
@@ -48,12 +49,18 @@ export class UIScene extends Phaser.Scene {
   private helperText!: Phaser.GameObjects.Text;
   private helperTween?: Phaser.Tweens.Tween;
   private musicText!: Phaser.GameObjects.Text;
+  private buddyBtn!: Phaser.GameObjects.Container;
+  private buddyBtnTween?: Phaser.Tweens.Tween;
   private startPanel!: Phaser.GameObjects.Container;
   private overPanel!: Phaser.GameObjects.Container;
   private overLine!: Phaser.GameObjects.Text;
   private overScore!: Phaser.GameObjects.Text;
   private recordText!: Phaser.GameObjects.Text;
   private recordTween?: Phaser.Tweens.Tween;
+  private topListText!: Phaser.GameObjects.Text;
+  private rankText!: Phaser.GameObjects.Text;
+  private entryScore = 0;
+  private deathCount = 0;
 
   constructor() {
     super("UI");
@@ -115,6 +122,30 @@ export class UIScene extends Phaser.Scene {
       })
       .setAlpha(0.8);
 
+    // buddy button (bottom-right) — the touch/click zone lives in RunScene,
+    // this is just the visual
+    const bw = this.scale.width;
+    const bh = this.scale.height;
+    this.buddyBtn = this.add.container(bw - 64, bh - 64);
+    const btnBg = this.add.graphics();
+    btnBg.fillStyle(0x0e2415, 0.85);
+    btnBg.fillCircle(0, 0, 44);
+    btnBg.lineStyle(3, 0xffe066, 1);
+    btnBg.strokeCircle(0, 0, 44);
+    this.buddyBtn.add(btnBg);
+    this.buddyBtn.add(this.add.image(0, -8, "kea1").setScale(0.8));
+    this.buddyBtn.add(
+      this.add
+        .text(0, 24, "HELP!", {
+          fontFamily: FONT,
+          fontSize: "13px",
+          fontStyle: "bold",
+          color: "#ffe066",
+        })
+        .setOrigin(0.5)
+    );
+    this.buddyBtn.setVisible(false);
+
     this.startPanel = this.buildStartPanel();
     this.overPanel = this.buildOverPanel();
     this.overPanel.setVisible(false);
@@ -130,6 +161,20 @@ export class UIScene extends Phaser.Scene {
       this.startPanel.setVisible(false);
       this.overPanel.setVisible(false);
       this.recordTween?.stop();
+      this.closeEntry();
+    });
+
+    // name entry overlay (plain DOM so mobile keyboards behave)
+    const input = document.getElementById("ne-name") as HTMLInputElement | null;
+    document
+      .getElementById("ne-save")
+      ?.addEventListener("click", () => this.submitEntry());
+    document
+      .getElementById("ne-skip")
+      ?.addEventListener("click", () => this.closeEntry());
+    input?.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") this.submitEntry();
     });
     g.on("dead", (p: DeadPayload) => this.showGameOver(p));
     g.on("helper", (p: HelperPayload) => this.showHelper(p));
@@ -183,12 +228,20 @@ export class UIScene extends Phaser.Scene {
         .setOrigin(0.5)
     );
 
-    const lines = [
-      "SPACE / ↑ / click — jump  ·  press again mid-air: FLAP!",
-      "hold ↓ / S — duck  ·  on a downhill: SLIDE & smash pests!",
-      "Rocks are indestructible — jump them, even mid-slide",
-      "8 kiwifruit fill your buddy meter → press E for backup",
-    ];
+    const touch = this.sys.game.device.input.touch;
+    const lines = touch
+      ? [
+          "TAP — jump  ·  tap again mid-air: FLAP!",
+          "HOLD LEFT side — duck  ·  downhill: SLIDE & smash pests!",
+          "Rocks are indestructible — jump them, even mid-slide",
+          "8 kiwifruit fill your buddy meter → tap the HELP! button",
+        ]
+      : [
+          "SPACE / ↑ / click — jump  ·  press again mid-air: FLAP!",
+          "hold ↓ / S — duck  ·  on a downhill: SLIDE & smash pests!",
+          "Rocks are indestructible — jump them, even mid-slide",
+          "8 kiwifruit fill your buddy meter → press E for backup",
+        ];
     lines.forEach((s, i) =>
       c.add(
         this.add
@@ -249,15 +302,16 @@ export class UIScene extends Phaser.Scene {
   private buildOverPanel(): Phaser.GameObjects.Container {
     const w = this.scale.width;
     const h = this.scale.height;
-    const c = this.add.container(w / 2, h / 2 - 20);
+    const c = this.add.container(w / 2, h / 2 - 14);
 
-    c.add(this.panelBg(560, 250));
+    c.add(this.panelBg(720, 310));
 
+    // left column: what happened
     c.add(
       this.add
-        .text(0, -86, "SPLAT!", {
+        .text(-180, -100, "SPLAT!", {
           fontFamily: FONT,
-          fontSize: "46px",
+          fontSize: "44px",
           fontStyle: "bold",
           color: "#ff6b5e",
           stroke: "#3a0e08",
@@ -267,16 +321,18 @@ export class UIScene extends Phaser.Scene {
     );
 
     this.overLine = this.add
-      .text(0, -38, "", {
+      .text(-180, -54, "", {
         fontFamily: FONT,
-        fontSize: "16px",
+        fontSize: "15px",
         color: "#ffffff",
+        align: "center",
+        wordWrap: { width: 310 },
       })
       .setOrigin(0.5);
     c.add(this.overLine);
 
     this.overScore = this.add
-      .text(0, 2, "", {
+      .text(-180, -10, "", {
         fontFamily: FONT,
         fontSize: "20px",
         fontStyle: "bold",
@@ -286,9 +342,9 @@ export class UIScene extends Phaser.Scene {
     c.add(this.overScore);
 
     this.recordText = this.add
-      .text(0, 40, "★ NEW RECORD! ★", {
+      .text(-180, 30, "★ NEW RECORD! ★", {
         fontFamily: FONT,
-        fontSize: "22px",
+        fontSize: "20px",
         fontStyle: "bold",
         color: "#ffe066",
         stroke: "#3a2a00",
@@ -297,9 +353,41 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0.5);
     c.add(this.recordText);
 
+    // right column: global top 10
     c.add(
       this.add
-        .text(0, 88, "SPACE = play again  ·  M = music on/off", {
+        .text(180, -118, "🌍 GLOBAL TOP 10", {
+          fontFamily: FONT,
+          fontSize: "18px",
+          fontStyle: "bold",
+          color: "#9fe066",
+        })
+        .setOrigin(0.5, 0)
+    );
+
+    this.topListText = this.add
+      .text(180, -88, "loading…", {
+        fontFamily: "ui-monospace, Consolas, monospace",
+        fontSize: "14px",
+        color: "#e9f5e6",
+        lineSpacing: 4,
+      })
+      .setOrigin(0.5, 0);
+    c.add(this.topListText);
+
+    this.rankText = this.add
+      .text(-180, 66, "", {
+        fontFamily: FONT,
+        fontSize: "16px",
+        fontStyle: "bold",
+        color: "#9fe066",
+      })
+      .setOrigin(0.5);
+    c.add(this.rankText);
+
+    c.add(
+      this.add
+        .text(0, 130, "SPACE / tap = play again  ·  M = music on/off", {
           fontFamily: FONT,
           fontSize: "14px",
           color: "#ffffff",
@@ -311,11 +399,109 @@ export class UIScene extends Phaser.Scene {
     return c;
   }
 
+  // ------------------------------------------------------- leaderboard
+  private renderTop(rows: ScoreRow[], highlight?: ScoreRow) {
+    if (!rows.length) {
+      this.topListText.setText("nobody yet —\nbe the first legend!");
+      return;
+    }
+    let marked = false;
+    const lines = rows.map((r, i) => {
+      const line = `${String(i + 1).padStart(2)}. ${r.name.padEnd(12)} ${String(
+        r.score
+      ).padStart(6)}`;
+      if (
+        !marked &&
+        highlight &&
+        r.name === highlight.name &&
+        r.score === highlight.score
+      ) {
+        marked = true;
+        return line + " ◄";
+      }
+      return line;
+    });
+    this.topListText.setText(lines.join("\n"));
+  }
+
+  private async loadBoard(p: DeadPayload) {
+    const myDeath = this.deathCount;
+    const top = await fetchTop();
+    if (myDeath !== this.deathCount || !this.overPanel.visible) return;
+    if (top === null) {
+      this.topListText.setText("offline —\nleaderboard unavailable");
+      return;
+    }
+    this.renderTop(top);
+    if (qualifies(top, p.score)) this.openEntry(p.score);
+  }
+
+  private openEntry(score: number) {
+    this.entryScore = score;
+    const overlay = document.getElementById("name-entry");
+    const input = document.getElementById("ne-name") as HTMLInputElement | null;
+    const scoreEl = document.getElementById("ne-score");
+    if (!overlay || !input) return;
+    if (scoreEl)
+      scoreEl.textContent = `${score} points — you made the global top 10!`;
+    input.value = localStorage.getItem("kiwirun_name") ?? "";
+    overlay.classList.remove("hidden");
+    if (this.game.input.keyboard) this.game.input.keyboard.enabled = false;
+    setTimeout(() => input.focus(), 50);
+  }
+
+  private closeEntry() {
+    document.getElementById("name-entry")?.classList.add("hidden");
+    if (this.game.input.keyboard) this.game.input.keyboard.enabled = true;
+  }
+
+  private submitEntry() {
+    const input = document.getElementById("ne-name") as HTMLInputElement | null;
+    const name = (input?.value ?? "").trim().slice(0, 12);
+    if (name.length < 2) {
+      input?.focus();
+      return;
+    }
+    localStorage.setItem("kiwirun_name", name);
+    const score = this.entryScore;
+    const myDeath = this.deathCount;
+    this.closeEntry();
+    this.rankText.setText("submitting…");
+    void submitScore(name, score).then((res) => {
+      if (myDeath !== this.deathCount || !this.overPanel.visible) return;
+      if (!res) {
+        this.rankText.setText("submit failed — offline?");
+        return;
+      }
+      this.renderTop(res.top, { name, score });
+      this.rankText.setText(
+        res.rank === 1 ? "👑 WORLD #1, KIWI LEGEND!" : `You're world #${res.rank}!`
+      );
+    });
+  }
+
   private showHelper(p: HelperPayload) {
     this.helperTween?.stop();
     this.helperText.setAlpha(1);
+    this.buddyBtnTween?.stop();
     if (p.state === "ready") {
-      this.helperText.setText("E = call a friend!").setColor("#ffe066");
+      this.buddyBtn.setVisible(true).setScale(1);
+      this.buddyBtnTween = this.tweens.add({
+        targets: this.buddyBtn,
+        scale: 1.12,
+        duration: 380,
+        yoyo: true,
+        repeat: -1,
+        ease: "sine.inout",
+      });
+    } else {
+      this.buddyBtn.setVisible(false);
+    }
+    if (p.state === "ready") {
+      const hint = this.sys.game.device.input.touch
+        ? "Tap HELP! to call a friend!"
+        : "E = call a friend!";
+      this.helperText.setText(hint).setColor("#ffe066");
       this.helperTween = this.tweens.add({
         targets: this.helperText,
         alpha: 0.3,
@@ -334,10 +520,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   private showGameOver(p: DeadPayload) {
+    this.deathCount++;
     const lines = DEATH_LINES[p.killer] ?? ["Kiwi meets physics."];
     this.overLine.setText(lines[Math.floor(Math.random() * lines.length)]);
     this.overScore.setText(`Score: ${p.score}    Best: ${p.best}`);
     this.bestText.setText(`BEST ${p.best}`);
+    this.rankText.setText("");
+    this.topListText.setText("loading…");
+    void this.loadBoard(p);
 
     this.recordText.setVisible(p.record);
     this.recordTween?.stop();

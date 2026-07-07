@@ -1,0 +1,20 @@
+{
+  "name": "kiwirun",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-06-20",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kiwirun-scores",
+      "database_id": "71ddd685-9578-47c8-8b42-bf3a79d769d1"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

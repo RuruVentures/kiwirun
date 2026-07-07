@@ -6,11 +6,33 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥝</text></svg>"
     />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>Kiwi Run 🥝</title>
   </head>
   <body>
     <div id="app"></div>
+
+    <div id="rotate-hint">
+      <div>🥝</div>
+      <p>Rotate your phone for the best kiwi experience!</p>
+    </div>
+
+    <div id="name-entry" class="hidden">
+      <div class="ne-card">
+        <h2>🏆 GLOBAL TOP 10!</h2>
+        <p id="ne-score"></p>
+        <input id="ne-name" maxlength="12" placeholder="Your name" autocomplete="off" />
+        <div class="ne-row">
+          <button id="ne-save">Save score</button>
+          <button id="ne-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

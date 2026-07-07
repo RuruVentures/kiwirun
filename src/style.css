@@ -10,6 +10,10 @@ body {
   height: 100%;
   background: radial-gradient(ellipse at center, #12271a 0%, #0a1510 100%);
   overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
 }
 
 #app {
@@ -23,4 +27,115 @@ body {
 #app canvas {
   border-radius: 10px;
   box-shadow: 0 14px 50px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+}
+
+/* --- rotate hint: shown only on small portrait screens --- */
+#rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #0e2415;
+  color: #ffe066;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+  font-size: 18px;
+  padding: 24px;
+}
+#rotate-hint div {
+  font-size: 64px;
+  animation: spin-kiwi 2.4s ease-in-out infinite;
+}
+@keyframes spin-kiwi {
+  0%,
+  60%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20%,
+  40% {
+    transform: rotate(90deg);
+  }
+}
+@media (orientation: portrait) and (max-width: 700px) {
+  #rotate-hint {
+    display: flex;
+  }
+}
+
+/* --- leaderboard name entry overlay --- */
+#name-entry {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 12, 7, 0.65);
+  font-family: system-ui, sans-serif;
+}
+#name-entry.hidden {
+  display: none;
+}
+.ne-card {
+  background: #0e2415;
+  border: 3px solid #ffe066;
+  border-radius: 16px;
+  padding: 24px 28px;
+  text-align: center;
+  color: #fff;
+  width: min(92vw, 380px);
+}
+.ne-card h2 {
+  color: #ffe066;
+  margin-bottom: 8px;
+  font-size: 22px;
+}
+.ne-card p {
+  color: #cfe8c8;
+  margin-bottom: 14px;
+}
+.ne-card input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 18px;
+  border-radius: 8px;
+  border: 2px solid #4e9a4a;
+  background: #08170d;
+  color: #fff;
+  text-align: center;
+  outline: none;
+  margin-bottom: 14px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ne-card input:focus {
+  border-color: #ffe066;
+}
+.ne-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.ne-card button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+#ne-save {
+  background: #ffe066;
+  color: #2a2000;
+}
+#ne-skip {
+  background: #1c3a26;
+  color: #cfe8c8;
 }

@@ -6,7 +6,7 @@ type Killer = "possum" | "rat" | "rock" | "hawk";
 type GamePhase = "ready" | "running" | "dead";
 type HelperType = "kea" | "ranger";
 
-const GROUND_H = 92;
+const GROUND_H = 104;
 const PLAYER_X = 150;
 const START_SPEED = 300;
 const MAX_SPEED = 720;
@@ -72,6 +72,8 @@ export class RunScene extends Phaser.Scene {
   private slideDust!: Phaser.GameObjects.Particles.ParticleEmitter;
 
   private duckKeys: Phaser.Input.Keyboard.Key[] = [];
+  private touchDuck = false;
+  private touchDuckId = -1;
 
   private terrain = new Terrain();
   private phase: GamePhase = "ready";
@@ -261,8 +263,30 @@ export class RunScene extends Phaser.Scene {
         this.game.events.emit("music", toggleMusic());
       });
     }
-    this.input.on("pointerdown", () => this.pressJump());
-    this.input.on("pointerup", () => this.cutJump());
+    // touch: hold the LEFT side of the screen to duck/slide, tap anywhere
+    // else to jump; the bottom-right corner is the buddy button zone
+    this.input.addPointer(2);
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.inBuddyZone(p) && (this.helperReady || this.helperActive)) {
+        this.callHelper();
+        return;
+      }
+      if (p.wasTouch && this.phase === "running" && p.x < this.scale.width * 0.38) {
+        this.touchDuck = true;
+        this.touchDuckId = p.id;
+        return;
+      }
+      this.pressJump();
+    });
+    this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
+      if (p.id === this.touchDuckId) {
+        this.touchDuck = false;
+        this.touchDuckId = -1;
+        return;
+      }
+      this.cutJump();
+    });
+    this.game.events.on("call-helper", () => this.callHelper());
 
     // ready state
     this.terrain.reset(0);
@@ -299,7 +323,7 @@ export class RunScene extends Phaser.Scene {
     this.terrain.prune(this.distance - 700);
 
     const slope = this.slopeAtPlayer();
-    const duckHeld = this.duckKeys.some((k) => k.isDown);
+    const duckHeld = this.touchDuck || this.duckKeys.some((k) => k.isDown);
 
     // sliding happens ONLY while the player holds duck
     const wasSliding = this.sliding;
@@ -536,6 +560,12 @@ export class RunScene extends Phaser.Scene {
 
   private currentScore() {
     return Math.floor(this.distance / 10) + this.bonus;
+  }
+
+  private inBuddyZone(p: Phaser.Input.Pointer): boolean {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    return p.x > w - 118 && p.y > h - 118;
   }
 
   private setPlayerTexture(key: string) {
