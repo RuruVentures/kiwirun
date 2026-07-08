@@ -14,12 +14,13 @@ export type RosterPlayer = {
 };
 
 export type PosUpdate = { id: string; x: number; alive: boolean };
+export type Standing = { id: string; name: string; place: number };
 
 type Handlers = {
   roster?: (players: RosterPlayer[], youId: string) => void;
   countdown?: (ms: number, course: Course) => void;
   pos?: (u: PosUpdate) => void;
-  finished?: (id: string, place: number, name: string) => void;
+  standings?: (list: Standing[]) => void;
   toLobby?: () => void;
   cantStart?: (reason: string) => void;
   closed?: () => void;
@@ -88,8 +89,8 @@ export class RaceClient {
           x: m.x as number,
           alive: m.alive as boolean,
         });
-      } else if (m.t === "finished") {
-        this.h.finished?.(m.id as string, m.place as number, String(m.name ?? ""));
+      } else if (m.t === "standings") {
+        this.h.standings?.(m.list as Standing[]);
       } else if (m.t === "toLobby") {
         this.h.toLobby?.();
       } else if (m.t === "cantStart") {
@@ -123,8 +124,8 @@ export class RaceClient {
     this.send({ t: "pos", x, alive });
   }
 
-  sendFinished(x: number) {
-    this.send({ t: "finished", x });
+  sendFinished(elapsedMs: number) {
+    this.send({ t: "finished", elapsed: elapsedMs });
   }
 
   reset() {

@@ -117,13 +117,21 @@ export class RaceRoom extends DurableObject {
         alive: !!msg.alive,
       });
     } else if (msg.t === "finished") {
-      if (!this.finishers.includes(me.id)) {
-        this.finishers.push(me.id);
-        this.broadcast({
-          t: "finished",
+      if (!this.finishers.some((f) => f.id === me.id)) {
+        this.finishers.push({
           id: me.id,
-          place: this.finishers.length,
           name: me.name,
+          elapsed: Number(msg.elapsed) || 0,
+        });
+        // rank by race time — fair regardless of who has the faster connection
+        this.finishers.sort((a, b) => a.elapsed - b.elapsed);
+        this.broadcast({
+          t: "standings",
+          list: this.finishers.map((f, i) => ({
+            id: f.id,
+            name: f.name,
+            place: i + 1,
+          })),
         });
       }
     } else if (msg.t === "reset") {

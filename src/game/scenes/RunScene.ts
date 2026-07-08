@@ -9,8 +9,10 @@ import type { RaceClient, RosterPlayer, PosUpdate } from "../net";
 type Ghost = {
   img: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
-  dist: number;
-  targetDist: number;
+  dist: number; // smoothed on-screen distance
+  lastX: number; // last reported distance
+  lastMsgAt: number; // when that report arrived
+  vel: number; // estimated px/ms, for extrapolation
   color: number;
   name: string;
 };
@@ -190,6 +192,7 @@ export class RunScene extends Phaser.Scene {
   private finishPx = 0;
   private finished = false;
   private canExitAt = 0;
+  private raceStartAt = 0;
   private stumbleUntil = 0;
   private posAccum = 0;
   private ghosts = new Map<string, Ghost>();
@@ -1675,6 +1678,7 @@ export class RunScene extends Phaser.Scene {
     this.finishPx = p.course.finishPx;
     this.finished = false;
     this.stumbleUntil = 0;
+    this.raceStartAt = this.time.now; // ≈ GO; races are timed from here
 
     this.clearGhosts();
     for (const pl of p.players) {
@@ -1705,7 +1709,9 @@ export class RunScene extends Phaser.Scene {
         img,
         label,
         dist: 0,
-        targetDist: 0,
+        lastX: 0,
+        lastMsgAt: 0,
+        vel: 0,
         color: pl.color,
         name: pl.name,
       });
@@ -1713,7 +1719,7 @@ export class RunScene extends Phaser.Scene {
 
     this.raceClient.on({
       pos: (u) => this.onGhostPos(u),
-      finished: (id, place, name) => this.onOtherFinished(id, place, name),
+      standings: (list) => this.onStandings(list),
       toLobby: () => this.exitRace(),
     });
 
@@ -1732,9 +1738,13 @@ export class RunScene extends Phaser.Scene {
       this.raceClient?.sendPos(Math.round(this.distance), !this.finished);
     }
 
-    // ease each ghost toward its last reported distance, place it relative to me
+    // extrapolate each ghost to ~now from its last report + speed, then
+    // smooth — this removes the systematic "opponent looks behind" lag
+    const now = this.time.now;
     for (const g of this.ghosts.values()) {
-      g.dist += (g.targetDist - g.dist) * Math.min(1, 6 * dt);
+      const ahead = Phaser.Math.Clamp(now - g.lastMsgAt, 0, 400);
+      const predicted = g.lastX + g.vel * ahead;
+      g.dist += (predicted - g.dist) * Math.min(1, 12 * dt);
       const sx = PLAYER_X + (g.dist - this.distance);
       const show = !this.finished && sx > -80 && sx < this.scale.width + 80;
       g.img.setVisible(show);
@@ -1783,15 +1793,32 @@ export class RunScene extends Phaser.Scene {
 
   private onGhostPos(u: PosUpdate) {
     const g = this.ghosts.get(u.id);
-    if (g) g.targetDist = u.x;
+    if (!g) return;
+    const now = this.time.now;
+    const gap = now - g.lastMsgAt;
+    if (g.lastMsgAt > 0 && gap > 0) {
+      // px per ms, clamped to a sane running speed
+      g.vel = Phaser.Math.Clamp((u.x - g.lastX) / gap, 0, 0.8);
+    }
+    g.lastX = u.x;
+    g.lastMsgAt = now;
   }
 
-  private onOtherFinished(id: string, place: number, name: string) {
-    if (id === this.myId) {
-      this.showRaceBanner(`🏁 ${ordinal(place)} place! · tap to continue`);
+  private onStandings(list: { id: string; name: string; place: number }[]) {
+    const mine = list.find((s) => s.id === this.myId);
+    if (mine) {
+      this.showRaceBanner(`🏁 ${ordinal(mine.place)} place! · tap to continue`);
       this.canExitAt = this.time.now + 800;
     } else {
-      this.floater(this.scale.width / 2, 90, `${name} — ${ordinal(place)}!`, "#ffe066");
+      const latest = list[list.length - 1];
+      if (latest) {
+        this.floater(
+          this.scale.width / 2,
+          90,
+          `${latest.name} — ${ordinal(latest.place)}!`,
+          "#ffe066"
+        );
+      }
     }
   }
 
@@ -1811,7 +1838,7 @@ export class RunScene extends Phaser.Scene {
   private finishRace() {
     this.finished = true;
     this.player.clearTint();
-    this.raceClient?.sendFinished(Math.round(this.distance));
+    this.raceClient?.sendFinished(Math.round(this.time.now - this.raceStartAt));
     sfx.record();
     this.feathers.explode(20, this.player.x, this.player.y - 24);
     this.showRaceBanner("🏁 FINISH! waiting for your place…");
