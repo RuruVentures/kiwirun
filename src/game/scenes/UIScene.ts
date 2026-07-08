@@ -64,6 +64,7 @@ export class UIScene extends Phaser.Scene {
   private helperTween?: Phaser.Tweens.Tween;
   private musicText!: Phaser.GameObjects.Text;
   private buddyBtn!: Phaser.GameObjects.Container;
+  private buddyIcon!: Phaser.GameObjects.Image;
   private buddyBtnTween?: Phaser.Tweens.Tween;
   private startPanel!: Phaser.GameObjects.Container;
   private overPanel!: Phaser.GameObjects.Container;
@@ -149,7 +150,8 @@ export class UIScene extends Phaser.Scene {
     btnBg.lineStyle(3, 0xffe066, 1);
     btnBg.strokeCircle(0, 0, 44);
     this.buddyBtn.add(btnBg);
-    this.buddyBtn.add(this.add.image(0, -8, "kea1").setScale(0.8));
+    this.buddyIcon = this.add.image(0, -8, "kea1").setScale(0.8);
+    this.buddyBtn.add(this.buddyIcon);
     this.buddyBtn.add(
       this.add
         .text(0, 24, "HELP!", {
@@ -565,6 +567,15 @@ export class UIScene extends Phaser.Scene {
     this.helperText.setAlpha(1);
     this.buddyBtnTween?.stop();
     if (p.state === "ready") {
+      // the button shows WHO is coming
+      const iconScale: Record<string, number> = {
+        kea: 0.8,
+        ranger: 0.5,
+        quad: 0.72,
+        plane: 0.5,
+      };
+      const type = p.type ?? "kea";
+      this.buddyIcon.setTexture(`${type}1`).setScale(iconScale[type] ?? 0.7);
       this.buddyBtn.setVisible(true).setScale(1);
       this.buddyBtnTween = this.tweens.add({
         targets: this.buddyBtn,
@@ -578,9 +589,10 @@ export class UIScene extends Phaser.Scene {
       this.buddyBtn.setVisible(false);
     }
     if (p.state === "ready") {
+      const name = HELPER_NAMES[p.type ?? "kea"] ?? "a friend";
       const hint = this.sys.game.device.input.touch
-        ? "Tap HELP! to call a friend!"
-        : "E = call a friend!";
+        ? `Tap HELP! → ${name}!`
+        : `E = call the ${name}!`;
       this.helperText.setText(hint).setColor("#ffe066");
       this.helperTween = this.tweens.add({
         targets: this.helperText,

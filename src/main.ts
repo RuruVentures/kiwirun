@@ -23,3 +23,23 @@ setTimeout(() => {
 // Keep the loop alive if blur/visibility events try to sleep it
 game.events.on(Phaser.Core.Events.BLUR, () => game.loop.wake());
 game.events.on(Phaser.Core.Events.HIDDEN, () => game.loop.wake());
+
+// Mobile polish: go fullscreen + lock landscape on the first touch
+// (Android; iOS politely ignores both — that's fine)
+let fullscreenTried = false;
+window.addEventListener("pointerdown", (e) => {
+  if (fullscreenTried || e.pointerType !== "touch") return;
+  fullscreenTried = true;
+  document.documentElement
+    .requestFullscreen?.({ navigationUI: "hide" })
+    .then(() => {
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (o: string) => Promise<void>;
+      };
+      return orientation.lock?.("landscape");
+    })
+    .catch(() => undefined);
+});
+
+// no long-press context menu over the game
+window.addEventListener("contextmenu", (e) => e.preventDefault());

@@ -1,0 +1,14 @@
+{
+  "name": "Kiwi Run",
+  "short_name": "Kiwi Run",
+  "description": "Help a flightless kiwi outrun possums, rats and a cheeky falcon. Beat the global top 10!",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a1510",
+  "theme_color": "#0e2415",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

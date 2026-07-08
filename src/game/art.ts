@@ -365,6 +365,17 @@ const BOMB = [
   ".t..t.",
 ];
 
+// parachute for the plane exit — red/white canopy, grey lines
+const CHUTE = [
+  "...RwRwRwRwR...",
+  ".RwRwRwRwRwRwR.",
+  "RwRwRwRwRwRwRwR",
+  ".s....s.....s..",
+  "..s...s....s...",
+  "...s..s...s....",
+  "....s.s..s.....",
+];
+
 // little kiwi ghost — dark outline so it reads against the bright sky
 const GHOST = [
   "...GGGGG....",
@@ -481,6 +492,7 @@ export function makeSprites(scene: Phaser.Scene) {
   pixelTexture(scene, "plane2", PLANE_B);
   pixelTexture(scene, "bomb", BOMB, 2);
   pixelTexture(scene, "ghost", GHOST);
+  pixelTexture(scene, "chute", CHUTE);
   pixelTexture(scene, "deco_treefern", TREE_FERN);
   pixelTexture(scene, "deco_cabbage", CABBAGE_TREE);
   pixelTexture(scene, "deco_flax", FLAX);

@@ -135,6 +135,10 @@ export class RunScene extends Phaser.Scene {
   private bullets: Phaser.GameObjects.Image[] = [];
   private nextShotAt = 0;
   private lastShotAt = 0;
+  private nextHelperType?: HelperType;
+  private invulnUntil = 0;
+  private parachuting = false;
+  private chute?: Phaser.GameObjects.Image;
 
   private runAnimT = 0;
   private runFrameB = false;
@@ -214,7 +218,8 @@ export class RunScene extends Phaser.Scene {
     this.fruits = this.physics.add.group({ allowGravity: false, immovable: true });
 
     this.physics.add.overlap(this.player, this.obstacles, (_p, obj) => {
-      if (this.phase !== "running" || this.planeActive) return;
+      if (this.phase !== "running" || this.planeActive || this.parachuting) return;
+      if (this.time.now < this.invulnUntil) return; // post-buddy grace period
       const o = obj as Obstacle;
       if (o.getData("smashed")) return;
       const killer = o.getData("killer") as Killer;
@@ -413,6 +418,40 @@ export class RunScene extends Phaser.Scene {
     // --------------------------------------------- player vertical motion
     if (this.planeActive) {
       // the kiwi is up in the biplane — nothing to do down here
+    } else if (this.parachuting) {
+      // gentle descent under the canopy, drifting back to running position
+      this.player.y += 135 * dt;
+      this.player.x += (PLAYER_X - this.player.x) * Math.min(1, 2.2 * dt);
+      this.player.angle = Math.sin(this.time.now * 0.004) * 8;
+      this.chute
+        ?.setPosition(
+          this.player.x + this.player.angle * 0.8,
+          this.player.y - this.player.displayHeight - 22
+        )
+        .setAngle(this.player.angle * 0.7);
+      const groundY = this.gy(this.player.x);
+      if (this.player.y >= groundY) {
+        this.parachuting = false;
+        this.player.y = groundY;
+        this.player.setAngle(0);
+        this.grounded = true;
+        this.vy = 0;
+        this.invulnUntil = this.time.now + 2000;
+        this.dust.explode(8, this.player.x, this.player.y - 2);
+        sfx.thump();
+        const chute = this.chute;
+        this.chute = undefined;
+        if (chute) {
+          this.tweens.add({
+            targets: chute,
+            y: chute.y - 140,
+            alpha: 0,
+            duration: 700,
+            onComplete: () => chute.destroy(),
+          });
+        }
+        this.tweens.add({ targets: this.player, x: PLAYER_X, duration: 300 });
+      }
     } else if (this.grounded) {
       const newY = this.gy(PLAYER_X);
       const groundVy = (newY - this.player.y) / dt;
@@ -467,7 +506,7 @@ export class RunScene extends Phaser.Scene {
     }
 
     // tilt with the terrain
-    if (!this.planeActive) {
+    if (!this.planeActive && !this.parachuting) {
       const targetAngle = this.grounded
         ? Phaser.Math.RadToDeg(Math.atan(slope)) * 0.7
         : Phaser.Math.Clamp(this.vy * 0.02, -12, 14);
@@ -522,6 +561,13 @@ export class RunScene extends Phaser.Scene {
     this.updateHelper(dt, eff);
     this.updateBombs(dt, eff);
     this.updateBullets(dt);
+
+    // invulnerability blink
+    if (this.parachuting || this.time.now < this.invulnUntil) {
+      this.player.setAlpha(0.55 + Math.sin(this.time.now * 0.02) * 0.35);
+    } else if (this.player.alpha !== 1) {
+      this.player.setAlpha(1);
+    }
 
     // score
     const score = this.currentScore();
@@ -655,7 +701,7 @@ export class RunScene extends Phaser.Scene {
       return;
     }
 
-    if (this.planeActive) return; // the plane flies itself
+    if (this.planeActive || this.parachuting) return; // hands off the stick
 
     if (this.grounded) {
       this.setDuck(false);
@@ -730,7 +776,13 @@ export class RunScene extends Phaser.Scene {
     this.player.setFlipY(false);
     this.player.setAngle(0);
     this.player.setScale(1);
+    this.player.setAlpha(1);
     this.player.clearTint();
+    this.parachuting = false;
+    this.chute?.destroy();
+    this.chute = undefined;
+    this.invulnUntil = 0;
+    this.nextHelperType = undefined;
     this.ducking = false;
     this.sliding = false;
     this.slideDust.stop();
@@ -1046,7 +1098,8 @@ export class RunScene extends Phaser.Scene {
     if (this.phase !== "running" || !this.helperReady || this.helperActive) return;
     this.helperReady = false;
     this.helperActive = true;
-    this.helperType = this.pickHelperType();
+    this.helperType = this.nextHelperType ?? this.pickHelperType();
+    this.nextHelperType = undefined;
     const ms = HELPER_DEFS[this.helperType].ms;
     this.helperUntil = this.time.now + ms;
     this.helperSecsShown = Math.ceil(ms / 1000);
@@ -1323,33 +1376,57 @@ export class RunScene extends Phaser.Scene {
     this.bombs = [];
     for (const b of this.bullets) b.destroy();
     this.bullets = [];
+
     if (this.planeActive) {
       this.planeActive = false;
       this.player.setVisible(true);
-      this.player.setPosition(PLAYER_X, this.gy(PLAYER_X));
-      this.vy = 0;
-      this.grounded = true;
-      if (!instant) {
-        this.dust.explode(8, this.player.x, this.player.y - 2);
-        this.feathers.explode(6, this.player.x, this.player.y - 20);
+      if (instant || !s) {
+        this.player.setPosition(PLAYER_X, this.gy(PLAYER_X));
+        this.vy = 0;
+        this.grounded = true;
+      } else {
+        // the kiwi bails out with a parachute; the plane climbs away
+        this.parachuting = true;
+        this.player.setPosition(s.x, s.y + 24);
+        this.player.setAngle(0);
+        this.vy = 0;
+        this.grounded = false;
+        this.chute?.destroy();
+        this.chute = this.add
+          .image(s.x, s.y - 30, "chute")
+          .setDepth(10)
+          .setScale(1.4);
+        this.feathers.explode(5, s.x, s.y + 10);
       }
     }
 
     if (s) {
       if (instant) {
         s.destroy();
+      } else if (this.helperType === "plane") {
+        // up, up and away!
+        this.tweens.add({
+          targets: s,
+          x: s.x + 380,
+          y: -120,
+          angle: -14,
+          duration: 1100,
+          ease: "sine.in",
+          onComplete: () => s.destroy(),
+        });
       } else {
-        const flyOff = this.helperType === "kea" || this.helperType === "plane";
         this.tweens.add({
           targets: s,
           x: this.scale.width + 160,
-          y: flyOff ? 40 : s.y,
+          y: this.helperType === "kea" ? 40 : s.y,
           duration: 800,
           onComplete: () => s.destroy(),
         });
       }
     }
     if (wasActive && this.phase === "running") {
+      // grace period so nobody dies to whatever the buddy left behind
+      if (!this.parachuting) this.invulnUntil = this.time.now + 2500;
       this.game.events.emit("helper", { state: "done" });
       this.maybePromoteHelper();
     }
@@ -1360,8 +1437,13 @@ export class RunScene extends Phaser.Scene {
     if (this.fruitsToward >= FRUIT_PER_HELPER) {
       this.fruitsToward -= FRUIT_PER_HELPER;
       this.helperReady = true;
+      // roll the buddy NOW so the button can show who's coming
+      this.nextHelperType = this.pickHelperType();
       sfx.buddyReady();
-      this.game.events.emit("helper", { state: "ready" });
+      this.game.events.emit("helper", {
+        state: "ready",
+        type: this.nextHelperType,
+      });
     } else {
       this.game.events.emit("helper", {
         state: "progress",
