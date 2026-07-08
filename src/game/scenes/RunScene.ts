@@ -7,14 +7,12 @@ type Killer = "possum" | "rat" | "rock" | "hawk";
 type GamePhase = "ready" | "running" | "dead";
 type HelperType = "kea" | "ranger" | "quad" | "plane";
 
-// the stronger, the rarer — the kids' spec.
-// TEST PHASE: equal odds so everyone can try every buddy.
-// TODO before sharing widely: restore kea 55 / ranger 30 / quad 12 / plane 3
+// the stronger, the rarer — final balance per Leopold's tuning
 const HELPER_DEFS: Record<HelperType, { ms: number; weight: number }> = {
-  kea: { ms: 8000, weight: 25 },
-  ranger: { ms: 12000, weight: 25 },
-  quad: { ms: 16000, weight: 25 },
-  plane: { ms: 20000, weight: 25 },
+  kea: { ms: 8000, weight: 40 },
+  ranger: { ms: 12000, weight: 30 },
+  quad: { ms: 16000, weight: 20 },
+  plane: { ms: 20000, weight: 10 },
 };
 
 const GROUND_H = 104;
