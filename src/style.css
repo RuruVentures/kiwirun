@@ -168,10 +168,10 @@ body {
   color: #2a2a20;
   cursor: default;
 }
-.lobby-or {
+.lobby-hint {
   color: #8ba888;
   font-size: 12px;
-  margin: 10px 0;
+  margin: 2px 0 12px;
 }
 .lobby-joinrow {
   display: flex;
@@ -181,10 +181,12 @@ body {
   flex: 1;
   margin-bottom: 0;
 }
-.lobby-joinrow button {
-  padding: 0 18px;
-  background: #4e9a4a;
+#lobby-dice {
+  padding: 0 14px;
+  background: #12291a;
+  border: 2px solid #4e9a4a;
   color: #fff;
+  font-size: 20px;
 }
 .lobby-text {
   background: none;

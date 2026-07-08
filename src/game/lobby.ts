@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { RaceClient, randomCode, type RosterPlayer } from "./net";
+import { RaceClient, randomCode, checkRoom, type RosterPlayer } from "./net";
 
 /**
  * The Cross Country lobby — a DOM overlay driven by a RaceClient.
@@ -22,7 +22,10 @@ export function initLobby(game: Phaser.Game) {
   const countNum = $("lobby-count-num");
   const nameInput = $("lobby-name") as HTMLInputElement;
   const codeInput = $("lobby-code") as HTMLInputElement;
+  const goBtn = $("lobby-go") as HTMLButtonElement;
+  const diceBtn = $("lobby-dice") as HTMLButtonElement;
   const roomCode = $("lobby-roomcode");
+  const roomSub = $("lobby-room-sub");
   const playersUl = $("lobby-players");
   const readyBox = $("lobby-ready") as HTMLInputElement;
   const startBtn = $("lobby-start") as HTMLButtonElement;
@@ -32,6 +35,32 @@ export function initLobby(game: Phaser.Game) {
 
   let client: RaceClient | undefined;
   let countTimer: number | undefined;
+  let checkTimer: number | undefined;
+  let checkSeq = 0;
+
+  function resetGo() {
+    goBtn.disabled = true;
+    goBtn.textContent = "Enter a code";
+  }
+
+  // debounced room lookup: flips the button between Create and Join
+  function refreshGo() {
+    const code = codeInput.value.trim().toUpperCase();
+    if (checkTimer) clearTimeout(checkTimer);
+    if (!/^[A-Z]{4}$/.test(code)) {
+      resetGo();
+      return;
+    }
+    goBtn.disabled = true;
+    goBtn.textContent = "Checking…";
+    const seq = ++checkSeq;
+    checkTimer = window.setTimeout(async () => {
+      const { exists } = await checkRoom(code);
+      if (seq !== checkSeq || !open) return; // stale / lobby closed
+      goBtn.disabled = false;
+      goBtn.textContent = exists ? "Join race" : "Create race";
+    }, 300);
+  }
 
   const show = (el: HTMLElement) => el.classList.remove("hidden");
   const hide = (el: HTMLElement) => el.classList.add("hidden");
@@ -46,6 +75,7 @@ export function initLobby(game: Phaser.Game) {
     nameInput.value = localStorage.getItem("kiwirun_name") ?? "";
     codeInput.value = "";
     entryMsg.textContent = "";
+    resetGo();
     show(entry);
     hide(room);
     hide(countdown);
@@ -102,6 +132,9 @@ export function initLobby(game: Phaser.Game) {
     }
 
     const iAmHost = client?.isHost() ?? false;
+    roomSub.textContent = iAmHost
+      ? `📣 Read out code ${client?.code} — friends type it to join you!`
+      : "You're in! Tick “I'm ready”, then wait for GO 🏁";
     const allReady = players.length > 0 && players.every((p) => p.ready);
     startBtn.classList.toggle("hidden", !iAmHost);
     startBtn.disabled = !allReady;
@@ -141,25 +174,16 @@ export function initLobby(game: Phaser.Game) {
   $("lobby-leave").addEventListener("click", () => {
     client?.close();
     client = undefined;
+    resetGo();
     show(entry);
     hide(room);
   });
 
-  $("lobby-create").addEventListener("click", () => {
-    const name = nameInput.value.trim().slice(0, 12);
-    if (name.length < 1) {
-      entryMsg.textContent = "Enter your name first!";
-      nameInput.focus();
-      return;
-    }
-    connectRoom(randomCode(), name);
-  });
-
-  $("lobby-join").addEventListener("click", () => {
+  goBtn.addEventListener("click", () => {
     const name = nameInput.value.trim().slice(0, 12);
     const code = codeInput.value.trim().toUpperCase();
     if (name.length < 1) {
-      entryMsg.textContent = "Enter your name first!";
+      entryMsg.textContent = "Type your name first!";
       nameInput.focus();
       return;
     }
@@ -171,8 +195,15 @@ export function initLobby(game: Phaser.Game) {
     connectRoom(code, name);
   });
 
+  diceBtn.addEventListener("click", () => {
+    codeInput.value = randomCode();
+    refreshGo();
+    codeInput.focus();
+  });
+
   codeInput.addEventListener("input", () => {
     codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, "");
+    refreshGo();
   });
   readyBox.addEventListener("change", () => client?.setReady(readyBox.checked));
   startBtn.addEventListener("click", () => client?.start());
@@ -181,9 +212,7 @@ export function initLobby(game: Phaser.Game) {
   for (const el of [nameInput, codeInput]) {
     el.addEventListener("keydown", (e) => {
       e.stopPropagation();
-      if (e.key === "Enter") {
-        (entry.querySelector(el === codeInput ? "#lobby-join" : "#lobby-create") as HTMLButtonElement).click();
-      }
+      if (e.key === "Enter" && !goBtn.disabled) goBtn.click();
     });
   }
 

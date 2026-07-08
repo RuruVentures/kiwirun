@@ -18,7 +18,22 @@ type Handlers = {
   closed?: () => void;
 };
 
-const WS_BASE = "wss://kiwirun.christoph-koch.workers.dev/api/race/";
+const HOST = "kiwirun.christoph-koch.workers.dev";
+const WS_BASE = `wss://${HOST}/api/race/`;
+const API_BASE = `https://${HOST}/api/race/`;
+
+/** Does a room for this code already have players? Drives Join vs Create. */
+export async function checkRoom(
+  code: string
+): Promise<{ exists: boolean; count: number }> {
+  try {
+    const r = await fetch(API_BASE + code, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return { exists: false, count: 0 };
+    return (await r.json()) as { exists: boolean; count: number };
+  } catch {
+    return { exists: false, count: 0 };
+  }
+}
 
 // room codes: 4 letters, no I/O to avoid confusion when read aloud
 export const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ";

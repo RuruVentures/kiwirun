@@ -46,21 +46,21 @@
       <div class="lobby-card">
         <section id="lobby-entry">
           <h2>🏁 Cross Country</h2>
-          <p class="lobby-sub">Race your friends on the exact same course.</p>
+          <p class="lobby-sub">Race your friends on the same track!</p>
           <input id="lobby-name" maxlength="12" placeholder="Your name" autocomplete="off" />
-          <button id="lobby-create" class="lobby-primary">Create a race</button>
-          <div class="lobby-or">— or join with a code —</div>
           <div class="lobby-joinrow">
-            <input id="lobby-code" maxlength="4" placeholder="CODE" autocomplete="off" />
-            <button id="lobby-join">Join</button>
+            <input id="lobby-code" maxlength="4" placeholder="Secret code" autocomplete="off" />
+            <button id="lobby-dice" title="Make up a code">🎲</button>
           </div>
+          <p class="lobby-hint">Make up a code to start a race — or type a friend's code to join.</p>
+          <button id="lobby-go" class="lobby-primary" disabled>Enter a code</button>
           <p id="lobby-entry-msg" class="lobby-msg"></p>
           <button id="lobby-back" class="lobby-text">Back to game</button>
         </section>
 
         <section id="lobby-room" class="hidden">
           <h2>Race <span id="lobby-roomcode">····</span></h2>
-          <p class="lobby-sub">Read the code to your friends so they can join.</p>
+          <p class="lobby-sub" id="lobby-room-sub"></p>
           <ul id="lobby-players"></ul>
           <label id="lobby-ready-wrap">
             <input type="checkbox" id="lobby-ready" />

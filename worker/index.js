@@ -135,14 +135,12 @@ export default {
     const url = new URL(request.url);
     const secret = env.SCORE_SECRET ?? "dev-secret-change-me";
 
-    // Cross Country: hand the WebSocket to the room's Durable Object
+    // Cross Country: the room Durable Object handles both a WebSocket upgrade
+    // (join the room) and a plain GET (does this room exist yet?)
     if (url.pathname.startsWith("/api/race/")) {
       const code = url.pathname.slice("/api/race/".length).toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) {
         return new Response("bad room code", { status: 400, headers: CORS });
-      }
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("expected websocket", { status: 426, headers: CORS });
       }
       return env.RACE_ROOM.getByName(code).fetch(request);
     }

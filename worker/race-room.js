@@ -30,6 +30,20 @@ function cleanName(raw) {
 
 export class RaceRoom extends DurableObject {
   async fetch(request) {
+    // plain GET = "does this room exist yet?" probe (drives Join vs Create)
+    if (request.headers.get("Upgrade") !== "websocket") {
+      const players = this.roster();
+      return new Response(
+        JSON.stringify({ exists: players.length > 0, count: players.length }),
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }
+      );
+    }
+
     const live = this.ctx.getWebSockets();
     if (live.length >= MAX_PLAYERS) {
       return new Response("room full", { status: 403 });
