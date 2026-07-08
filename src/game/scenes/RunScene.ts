@@ -2,6 +2,18 @@ import Phaser from "phaser";
 import { sfx, startMusic, stopMusic, toggleMusic } from "../audio";
 import { Terrain } from "../terrain";
 import { beginRun } from "../leaderboard";
+import { CourseStream, type PestKind } from "../course";
+
+// texture / hitbox spec per ground pest kind
+const GROUND: Record<
+  Exclude<PestKind, "hawk">,
+  { tex: string; tex2: string | null; killer: Killer }
+> = {
+  rat: { tex: "rat1", tex2: "rat2", killer: "rat" },
+  possum: { tex: "possum1", tex2: "possum2", killer: "possum" },
+  rock1: { tex: "rock1", tex2: null, killer: "rock" },
+  rock2: { tex: "rock2", tex2: null, killer: "rock" },
+};
 
 type Killer = "possum" | "rat" | "rock" | "hawk";
 type GamePhase = "ready" | "running" | "dead";
@@ -112,7 +124,6 @@ export class RunScene extends Phaser.Scene {
   private slideBurstUntil = 0;
   private slideCooldownAt = 0;
   private airFlaps = 1;
-  private safeUntil = 0;
   private comboStep = 0;
   private lastPickupAt = 0;
 
@@ -143,10 +154,14 @@ export class RunScene extends Phaser.Scene {
   private enemyAnimT = 0;
   private enemyFrameB = false;
 
-  private nextSpawn?: Phaser.Time.TimerEvent;
-  private nextFruit?: Phaser.Time.TimerEvent;
   private nextDeco?: Phaser.Time.TimerEvent;
   private idleTween?: Phaser.Tweens.Tween;
+
+  // data-driven course (Phase 0): the track is generated into arrays and
+  // played back by distance, instead of random timers
+  private course?: CourseStream;
+  private obIdx = 0;
+  private fruitIdx = 0;
 
   constructor() {
     super("Run");
@@ -378,6 +393,7 @@ export class RunScene extends Phaser.Scene {
     // ------------------------------------------------------------ running
     this.terrain.ensure(this.distance + this.scale.width + 600);
     this.terrain.prune(this.distance - 700);
+    this.pumpCourse();
 
     const slope = this.slopeAtPlayer();
     const duckHeld =
@@ -771,6 +787,11 @@ export class RunScene extends Phaser.Scene {
     this.terrain.reset(0);
     this.distance = 0;
 
+    // solo: an endless course generated on the fly from Math.random
+    this.course = new CourseStream(Math.random);
+    this.obIdx = 0;
+    this.fruitIdx = 0;
+
     this.player.setFlipY(false);
     this.player.setAngle(0);
     this.player.setScale(1);
@@ -812,7 +833,6 @@ export class RunScene extends Phaser.Scene {
     this.overlay.setAlpha(0);
 
     this.phase = "running";
-    this.safeUntil = this.time.now + 900;
 
     this.game.events.emit("started");
     this.game.events.emit("score", 0);
@@ -826,8 +846,6 @@ export class RunScene extends Phaser.Scene {
     sfx.start();
     startMusic();
     beginRun(); // fetch the signed run token for score submission
-    this.scheduleSpawn();
-    this.scheduleFruit();
     this.scheduleDeco();
   }
 
@@ -840,8 +858,6 @@ export class RunScene extends Phaser.Scene {
     this.diedAt = this.time.now;
     this.canRestartAt = Number.MAX_SAFE_INTEGER;
 
-    this.nextSpawn?.remove(false);
-    this.nextFruit?.remove(false);
     this.nextDeco?.remove(false);
     this.retireHelper(true);
     stopMusic();
@@ -1492,124 +1508,36 @@ export class RunScene extends Phaser.Scene {
   }
 
   // ================================================================ spawning
-  private scheduleSpawn() {
-    this.nextSpawn?.remove(false);
-    let gapPx =
-      Phaser.Math.Clamp(380 + (this.speed - START_SPEED) * 0.55, 380, 640) +
-      Phaser.Math.Between(-70, 190);
-    // tighter spacing deep into a run
-    if (this.distance / 10 > 1500) gapPx *= 0.88;
-    const delay = Math.max(340, (gapPx / this.speed) * 1000);
+  // ================================================================ course
+  /**
+   * Spawn whatever the course places just off the right edge. Obstacles and
+   * fruit live in world-distance space; we extend the stream a little ahead
+   * of the screen each frame and spawn newly-covered entries at their
+   * screen position (worldX - distance).
+   */
+  private pumpCourse() {
+    if (!this.course) return;
+    const frontier = this.distance + this.scale.width + 250;
+    this.course.generateUpTo(frontier);
 
-    this.nextSpawn = this.time.delayedCall(delay, () => {
-      if (this.phase !== "running") return;
-      if (this.time.now >= this.safeUntil) this.spawnPattern();
-      this.scheduleSpawn();
-    });
+    const obs = this.course.obstacles;
+    while (this.obIdx < obs.length && obs[this.obIdx].x < frontier) {
+      const e = obs[this.obIdx++];
+      const sx = e.x - this.distance;
+      if (e.kind === "hawk") this.spawnHawk(sx);
+      else this.spawnGroundKind(e.kind, sx);
+    }
+
+    const fr = this.course.fruit;
+    while (this.fruitIdx < fr.length && fr[this.fruitIdx].x < frontier) {
+      const f = fr[this.fruitIdx++];
+      this.spawnFruit(f.x - this.distance, f.hover);
+    }
   }
 
-  private spawnPattern() {
-    const x = this.scale.width + 100;
-    const m = Math.floor(this.distance / 10);
-
-    const pool: { w: number; run: () => void }[] = [
-      { w: 3, run: () => this.spawnGround("rat1", "rat2", "rat", x) },
-      { w: 2.4, run: () => this.spawnGround("rock1", null, "rock", x) },
-    ];
-    if (m > 120) {
-      pool.push(
-        { w: 3, run: () => this.spawnGround("possum1", "possum2", "possum", x) },
-        {
-          w: 2,
-          run: () => {
-            this.spawnGround("rat1", "rat2", "rat", x);
-            this.spawnGround("rat1", "rat2", "rat", x + 74);
-          },
-        }
-      );
-    }
-    if (m > 300) {
-      pool.push(
-        { w: 2.5, run: () => this.spawnHawk(x) },
-        { w: 1.6, run: () => this.spawnGround("rock2", null, "rock", x) }
-      );
-    }
-    if (m > 600) {
-      pool.push(
-        {
-          w: 1.5,
-          run: () => {
-            this.spawnGround("rat1", "rat2", "rat", x);
-            this.spawnGround("rat1", "rat2", "rat", x + 70);
-            this.spawnGround("rat1", "rat2", "rat", x + 140);
-          },
-        },
-        {
-          w: 1.3,
-          run: () => {
-            this.spawnGround("possum1", "possum2", "possum", x);
-            this.spawnHawk(x + 320);
-          },
-        },
-        {
-          w: 1.2,
-          run: () => {
-            this.spawnGround("rock1", null, "rock", x);
-            this.spawnGround("rock2", null, "rock", x + 120);
-          },
-        }
-      );
-    }
-    // late game: runs should eventually end — the top 10 is for skill,
-    // not for who has the most spare time
-    if (m > 1200) {
-      pool.push(
-        {
-          w: 2,
-          run: () => {
-            this.spawnHawk(x);
-            this.spawnHawk(x + 300);
-          },
-        },
-        {
-          w: 2,
-          run: () => {
-            this.spawnGround("rock1", null, "rock", x);
-            this.spawnGround("possum1", "possum2", "possum", x + 170);
-          },
-        }
-      );
-    }
-    if (m > 2000) {
-      pool.push(
-        {
-          w: 2.2,
-          run: () => {
-            this.spawnGround("possum1", "possum2", "possum", x);
-            this.spawnGround("rat1", "rat2", "rat", x + 120);
-            this.spawnGround("possum1", "possum2", "possum", x + 235);
-          },
-        },
-        {
-          w: 2,
-          run: () => {
-            this.spawnHawk(x);
-            this.spawnGround("rock2", null, "rock", x + 70);
-          },
-        }
-      );
-    }
-
-    const total = pool.reduce((s, p) => s + p.w, 0);
-    let pick = Math.random() * total;
-    for (const p of pool) {
-      pick -= p.w;
-      if (pick <= 0) {
-        p.run();
-        return;
-      }
-    }
-    pool[0].run();
+  private spawnGroundKind(kind: Exclude<PestKind, "hawk">, x: number) {
+    const s = GROUND[kind];
+    this.spawnGround(s.tex, s.tex2, s.killer, x);
   }
 
   private spawnGround(tex: string, tex2: string | null, killer: Killer, x: number) {
@@ -1636,31 +1564,6 @@ export class RunScene extends Phaser.Scene {
     const body = o.body as ArcadeBody;
     body.setSize(56, 22);
     body.setOffset((o.width - 56) / 2, (o.height - 22) / 2);
-  }
-
-  private scheduleFruit() {
-    this.nextFruit?.remove(false);
-    this.nextFruit = this.time.delayedCall(Phaser.Math.Between(2600, 5200), () => {
-      if (this.phase !== "running") return;
-      this.spawnFruitPattern();
-      this.scheduleFruit();
-    });
-  }
-
-  private spawnFruitPattern() {
-    const x0 = this.scale.width + 80;
-    const kind = Phaser.Math.Between(0, 2);
-    if (kind === 0) {
-      for (let i = 0; i < 4; i++) this.spawnFruit(x0 + i * 42, 44);
-    } else if (kind === 1) {
-      const n = 5;
-      for (let i = 0; i < n; i++) {
-        const t = i / (n - 1);
-        this.spawnFruit(x0 + i * 46, 44 + Math.sin(t * Math.PI) * 110);
-      }
-    } else {
-      for (let i = 0; i < 3; i++) this.spawnFruit(x0 + i * 44, 150);
-    }
   }
 
   private spawnFruit(x: number, hover: number) {
