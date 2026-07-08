@@ -2,8 +2,25 @@ import Phaser from "phaser";
 import { sfx, startMusic, stopMusic, toggleMusic } from "../audio";
 import { Terrain } from "../terrain";
 import { beginRun } from "../leaderboard";
-import { CourseStream, type PestKind } from "../course";
+import { CourseStream, type PestKind, type Course } from "../course";
 import { isLobbyOpen } from "../lobby";
+import type { RaceClient, RosterPlayer, PosUpdate } from "../net";
+
+type Ghost = {
+  img: Phaser.GameObjects.Sprite;
+  label: Phaser.GameObjects.Text;
+  dist: number;
+  targetDist: number;
+  color: number;
+  name: string;
+};
+
+type RaceStartPayload = {
+  course: Course;
+  client: RaceClient;
+  youId: string;
+  players: RosterPlayer[];
+};
 
 // texture / hitbox spec per ground pest kind
 const GROUND: Record<
@@ -164,6 +181,21 @@ export class RunScene extends Phaser.Scene {
   private obIdx = 0;
   private fruitIdx = 0;
 
+  // Cross Country race mode
+  private raceMode = false;
+  private raceClient?: RaceClient;
+  private raceCourse?: Course;
+  private myId = "";
+  private myColor = 0xffe066;
+  private finishPx = 0;
+  private finished = false;
+  private canExitAt = 0;
+  private stumbleUntil = 0;
+  private posAccum = 0;
+  private ghosts = new Map<string, Ghost>();
+  private raceBar?: Phaser.GameObjects.Graphics;
+  private raceBanner?: Phaser.GameObjects.Text;
+
   constructor() {
     super("Run");
   }
@@ -241,7 +273,8 @@ export class RunScene extends Phaser.Scene {
         this.smash(o, `+${SMASH_POINTS}`);
         return;
       }
-      this.die(killer, o);
+      if (this.raceMode) this.raceStumble();
+      else this.die(killer, o);
     });
 
     this.physics.add.overlap(this.player, this.fruits, (_p, obj) => {
@@ -353,6 +386,9 @@ export class RunScene extends Phaser.Scene {
       this.cutJump();
     });
     this.game.events.on("call-helper", () => this.callHelper());
+    this.game.events.on("raceStart", (p: RaceStartPayload) => this.startRace(p));
+
+    this.raceBar = this.add.graphics().setDepth(21).setVisible(false);
 
     // ready state
     this.terrain.reset(0);
@@ -424,7 +460,11 @@ export class RunScene extends Phaser.Scene {
     }
 
     this.speed = Math.min(MAX_SPEED, this.speed + ACCEL * dt);
-    const eff = this.speed * slopeFactor;
+    let eff = this.speed * slopeFactor;
+    if (this.raceMode) {
+      if (this.finished) eff = 0; // parked at the finish line
+      else if (this.time.now < this.stumbleUntil) eff *= 0.2; // trip penalty
+    }
     this.distance += eff * dt;
     this.scroll(eff * dt);
     this.checkBiome();
@@ -576,6 +616,7 @@ export class RunScene extends Phaser.Scene {
     this.updateHelper(dt, eff);
     this.updateBombs(dt, eff);
     this.updateBullets(dt);
+    if (this.raceMode) this.updateRace(dt);
 
     // invulnerability blink
     if (this.parachuting || this.time.now < this.invulnUntil) {
@@ -699,6 +740,10 @@ export class RunScene extends Phaser.Scene {
 
   // ================================================================= input
   private pressJump() {
+    if (this.raceMode && this.finished) {
+      if (this.time.now > this.canExitAt) this.exitRace();
+      return;
+    }
     if (this.phase === "ready") {
       if (isLobbyOpen()) return; // don't start solo behind the lobby overlay
       this.startRun();
@@ -786,11 +831,19 @@ export class RunScene extends Phaser.Scene {
     this.exploded = false;
     this.deathSeq++;
 
-    this.terrain.reset(0);
+    if (this.raceMode && this.raceCourse) {
+      // race: the shared, host-authored course — identical for everyone
+      this.terrain.load(this.raceCourse.terrain);
+      this.course = CourseStream.preloaded(
+        this.raceCourse.obstacles,
+        this.raceCourse.fruit
+      );
+    } else {
+      // solo: an endless course generated on the fly from Math.random
+      this.terrain.reset(0);
+      this.course = new CourseStream(Math.random);
+    }
     this.distance = 0;
-
-    // solo: an endless course generated on the fly from Math.random
-    this.course = new CourseStream(Math.random);
     this.obIdx = 0;
     this.fruitIdx = 0;
 
@@ -847,7 +900,7 @@ export class RunScene extends Phaser.Scene {
 
     sfx.start();
     startMusic();
-    beginRun(); // fetch the signed run token for score submission
+    if (!this.raceMode) beginRun(); // solo: fetch the signed leaderboard token
     this.scheduleDeco();
   }
 
@@ -1610,6 +1663,226 @@ export class RunScene extends Phaser.Scene {
     this.floater(x, y - 8, "+15");
 
     this.game.events.emit("fruit", this.fruitCount);
-    this.maybePromoteHelper();
+    if (!this.raceMode) this.maybePromoteHelper();
   }
+
+  // ============================================================ Cross Country
+  startRace(p: RaceStartPayload) {
+    this.raceMode = true;
+    this.raceClient = p.client;
+    this.raceCourse = p.course;
+    this.myId = p.youId;
+    this.finishPx = p.course.finishPx;
+    this.finished = false;
+    this.stumbleUntil = 0;
+
+    this.clearGhosts();
+    for (const pl of p.players) {
+      if (pl.id === this.myId) {
+        this.myColor = pl.color;
+        continue;
+      }
+      const img = this.add
+        .sprite(-999, 0, "kiwi_run1")
+        .setOrigin(0.5, 1)
+        .setDepth(9)
+        .setAlpha(0.5)
+        .setTint(pl.color)
+        .setVisible(false);
+      const label = this.add
+        .text(-999, 0, pl.name, {
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "12px",
+          fontStyle: "bold",
+          color: "#ffffff",
+          stroke: "#0a1a0e",
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5, 1)
+        .setDepth(12)
+        .setVisible(false);
+      this.ghosts.set(pl.id, {
+        img,
+        label,
+        dist: 0,
+        targetDist: 0,
+        color: pl.color,
+        name: pl.name,
+      });
+    }
+
+    this.raceClient.on({
+      pos: (u) => this.onGhostPos(u),
+      finished: (id, place, name) => this.onOtherFinished(id, place, name),
+      toLobby: () => this.exitRace(),
+    });
+
+    this.idleTween?.stop();
+    this.idleTween = undefined;
+    this.player.setScale(1);
+    this.raceBar?.setVisible(true);
+    this.resetRun();
+  }
+
+  private updateRace(dt: number) {
+    // report my progress to the room a few times a second
+    this.posAccum += dt;
+    if (this.posAccum >= 0.13) {
+      this.posAccum = 0;
+      this.raceClient?.sendPos(Math.round(this.distance), !this.finished);
+    }
+
+    // ease each ghost toward its last reported distance, place it relative to me
+    for (const g of this.ghosts.values()) {
+      g.dist += (g.targetDist - g.dist) * Math.min(1, 6 * dt);
+      const sx = PLAYER_X + (g.dist - this.distance);
+      const show = !this.finished && sx > -80 && sx < this.scale.width + 80;
+      g.img.setVisible(show);
+      g.label.setVisible(show);
+      if (show) {
+        const gyy = this.gy(sx);
+        g.img
+          .setPosition(sx, gyy)
+          .setTexture(this.runFrameB ? "kiwi_run2" : "kiwi_run1");
+        g.label.setPosition(sx, gyy - 46);
+      }
+    }
+
+    this.drawRaceBar();
+
+    if (!this.finished && this.distance >= this.finishPx) this.finishRace();
+  }
+
+  private drawRaceBar() {
+    const g = this.raceBar;
+    if (!g) return;
+    const w = this.scale.width;
+    const left = 140;
+    const right = w - 70;
+    const y = 16;
+    g.clear();
+    g.fillStyle(0x0e2415, 0.72);
+    g.fillRoundedRect(left - 12, y - 9, right - left + 40, 24, 9);
+    g.lineStyle(2, 0xffffff, 0.25);
+    g.lineBetween(left, y + 3, right, y + 3);
+    g.fillStyle(0xffe066, 1);
+    g.fillRect(right, y - 5, 3, 16); // finish line
+    const at = (d: number) =>
+      left + Phaser.Math.Clamp(d / this.finishPx, 0, 1) * (right - left);
+    for (const gh of this.ghosts.values()) {
+      g.fillStyle(0xffffff, 0.85);
+      g.fillCircle(at(gh.dist), y + 3, 5);
+      g.fillStyle(gh.color, 1);
+      g.fillCircle(at(gh.dist), y + 3, 3.5);
+    }
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(at(this.distance), y + 3, 6.5);
+    g.fillStyle(this.myColor, 1);
+    g.fillCircle(at(this.distance), y + 3, 4.5);
+  }
+
+  private onGhostPos(u: PosUpdate) {
+    const g = this.ghosts.get(u.id);
+    if (g) g.targetDist = u.x;
+  }
+
+  private onOtherFinished(id: string, place: number, name: string) {
+    if (id === this.myId) {
+      this.showRaceBanner(`🏁 ${ordinal(place)} place! · tap to continue`);
+      this.canExitAt = this.time.now + 800;
+    } else {
+      this.floater(this.scale.width / 2, 90, `${name} — ${ordinal(place)}!`, "#ffe066");
+    }
+  }
+
+  private raceStumble() {
+    if (this.time.now < this.invulnUntil) return;
+    this.stumbleUntil = this.time.now + 1500;
+    this.invulnUntil = this.stumbleUntil; // pass through the pest while tripping
+    this.player.setTint(0xff8888);
+    this.feathers.explode(6, this.player.x, this.player.y - 20);
+    sfx.thump();
+    this.cameras.main.shake(120, 0.006);
+    this.time.delayedCall(1500, () => {
+      if (!this.finished) this.player.clearTint();
+    });
+  }
+
+  private finishRace() {
+    this.finished = true;
+    this.player.clearTint();
+    this.raceClient?.sendFinished(Math.round(this.distance));
+    sfx.record();
+    this.feathers.explode(20, this.player.x, this.player.y - 24);
+    this.showRaceBanner("🏁 FINISH! waiting for your place…");
+    this.canExitAt = this.time.now + 1500;
+  }
+
+  private showRaceBanner(text: string) {
+    if (!this.raceBanner) {
+      this.raceBanner = this.add
+        .text(this.scale.width / 2, this.scale.height / 2, "", {
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "34px",
+          fontStyle: "bold",
+          color: "#ffe066",
+          stroke: "#0a1a0e",
+          strokeThickness: 7,
+          align: "center",
+        })
+        .setOrigin(0.5)
+        .setDepth(24);
+    }
+    this.raceBanner.setText(text).setVisible(true);
+  }
+
+  private exitRace() {
+    this.game.events.emit("raceExit");
+    this.raceMode = false;
+    this.finished = false;
+    this.raceClient = undefined;
+    this.raceCourse = undefined;
+    this.clearGhosts();
+    this.raceBar?.clear().setVisible(false);
+    this.raceBanner?.setVisible(false);
+    this.obstacles.clear(true, true);
+    this.fruits.clear(true, true);
+    for (const d of this.decos) d.destroy();
+    this.decos = [];
+    this.nextDeco?.remove(false);
+    stopMusic();
+
+    // back to the solo title screen
+    this.player.setAlpha(1).clearTint().setFlipY(false).setAngle(0).setScale(1);
+    this.terrain.reset(0);
+    this.distance = 0;
+    this.player.setPosition(PLAYER_X, this.gy(PLAYER_X));
+    this.grounded = true;
+    this.vy = 0;
+    this.drawGround();
+    this.phase = "ready";
+    this.idleTween = this.tweens.add({
+      targets: this.player,
+      scaleY: 0.94,
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+      ease: "sine.inout",
+    });
+    this.game.events.emit("toTitle");
+  }
+
+  private clearGhosts() {
+    for (const g of this.ghosts.values()) {
+      g.img.destroy();
+      g.label.destroy();
+    }
+    this.ghosts.clear();
+  }
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }

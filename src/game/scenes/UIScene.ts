@@ -187,6 +187,11 @@ export class UIScene extends Phaser.Scene {
       this.closeEntry();
       showCc(false);
     });
+    g.on("toTitle", () => {
+      this.startPanel.setVisible(true);
+      this.overPanel.setVisible(false);
+      showCc(true);
+    });
 
     // name entry overlay (plain DOM so mobile keyboards behave)
     const input = document.getElementById("ne-name") as HTMLInputElement | null;

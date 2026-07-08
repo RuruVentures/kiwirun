@@ -1,5 +1,17 @@
 import Phaser from "phaser";
 import { RaceClient, randomCode, checkRoom, type RosterPlayer } from "./net";
+import { buildCourseObjects, type Course } from "./course";
+import { generateTerrain } from "./terrain";
+
+const FINISH_PX = 12000; // ~1200 m to the finish line
+
+function makeCourse(): Course {
+  return {
+    terrain: generateTerrain(FINISH_PX, Math.random),
+    ...buildCourseObjects(Math.random, FINISH_PX),
+    finishPx: FINISH_PX,
+  };
+}
 
 /**
  * The Cross Country lobby — a DOM overlay driven by a RaceClient.
@@ -98,7 +110,7 @@ export function initLobby(game: Phaser.Game) {
     client = new RaceClient();
     client.on({
       roster: (players, youId) => renderRoom(players, youId),
-      countdown: (ms) => runCountdown(ms),
+      countdown: (ms, course) => runCountdown(ms, course),
       cantStart: (reason) => {
         roomMsg.textContent = reason;
       },
@@ -143,7 +155,7 @@ export function initLobby(game: Phaser.Game) {
       : "Waiting for everyone…";
   }
 
-  function runCountdown(ms: number) {
+  function runCountdown(ms: number, course: Course) {
     hide(entry);
     hide(room);
     show(countdown);
@@ -152,17 +164,22 @@ export function initLobby(game: Phaser.Game) {
       const left = end - performance.now();
       if (left > 0) {
         countNum.textContent = String(Math.ceil(left / 1000));
-      } else {
-        countNum.textContent = "GO!";
-        if (countTimer) clearInterval(countTimer);
-        countTimer = undefined;
-        game.events.emit("raceStart", { code: client?.code });
-        // Phase 2 placeholder: the race lands in the next update
-        roomMsg.textContent = "";
-        setTimeout(() => {
-          if (open) closeLobby();
-        }, 1200);
+        return;
       }
+      countNum.textContent = "GO!";
+      if (countTimer) clearInterval(countTimer);
+      countTimer = undefined;
+      // hand off to the race — keep the client alive for position updates
+      const c = client;
+      hide(overlay);
+      open = false;
+      setKeyboard(true);
+      game.events.emit("raceStart", {
+        course,
+        client: c,
+        youId: c?.youId,
+        players: c?.players ?? [],
+      });
     };
     tick();
     countTimer = window.setInterval(tick, 100);
@@ -206,7 +223,13 @@ export function initLobby(game: Phaser.Game) {
     refreshGo();
   });
   readyBox.addEventListener("change", () => client?.setReady(readyBox.checked));
-  startBtn.addEventListener("click", () => client?.start());
+  startBtn.addEventListener("click", () => client?.start(makeCourse()));
+
+  // race asked to end — drop the connection and return to the title
+  game.events.on("raceExit", () => {
+    client?.close();
+    client = undefined;
+  });
 
   // let inputs handle their own keys without Phaser interfering
   for (const el of [nameInput, codeInput]) {

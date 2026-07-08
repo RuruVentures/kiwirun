@@ -11,9 +11,19 @@
  * Terrain (the height map) is generated separately in terrain.ts.
  */
 
+import type { Seg } from "./terrain";
+
 export type PestKind = "rat" | "possum" | "rock1" | "rock2" | "hawk";
 export type CourseObstacle = { x: number; kind: PestKind };
 export type CourseFruit = { x: number; hover: number };
+
+/** A full Cross Country track, authored once and shared with every racer. */
+export type Course = {
+  terrain: Seg[];
+  obstacles: CourseObstacle[];
+  fruit: CourseFruit[];
+  finishPx: number; // distance to the finish line, in world pixels
+};
 
 /** Any function returning a float in [0, 1) — Math.random or a seeded PRNG. */
 export type Rng = () => number;
@@ -125,4 +135,24 @@ export class CourseStream {
       this.fruitX += ri(this.rng, 900, 1800);
     }
   }
+
+  /** A fully pre-generated stream (from a shared course); never extends. */
+  static preloaded(obstacles: CourseObstacle[], fruit: CourseFruit[]): CourseStream {
+    const s = new CourseStream(() => 0);
+    s.obstacles.push(...obstacles);
+    s.fruit.push(...fruit);
+    s.pestX = Infinity;
+    s.fruitX = Infinity;
+    return s;
+  }
+}
+
+/** Generate a finite pest+fruit track once (used by the race host). */
+export function buildCourseObjects(
+  rng: Rng,
+  lengthPx: number
+): { obstacles: CourseObstacle[]; fruit: CourseFruit[] } {
+  const s = new CourseStream(rng);
+  s.generateUpTo(lengthPx + 800);
+  return { obstacles: [...s.obstacles], fruit: [...s.fruit] };
 }

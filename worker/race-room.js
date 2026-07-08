@@ -29,6 +29,11 @@ function cleanName(raw) {
 }
 
 export class RaceRoom extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.finishers = []; // player ids in the order they crossed the line
+  }
+
   async fetch(request) {
     // plain GET = "does this room exist yet?" probe (drives Join vs Create)
     if (request.headers.get("Upgrade") !== "websocket") {
@@ -102,12 +107,33 @@ export class RaceRoom extends DurableObject {
       ws.serializeAttachment(me);
       this.broadcastRoster();
     } else if (msg.t === "start") {
-      this.tryStart(ws, me);
+      this.tryStart(ws, me, msg.course);
+    } else if (msg.t === "pos") {
+      // relay this racer's progress to everyone else
+      this.broadcastExcept(ws, {
+        t: "pos",
+        id: me.id,
+        x: msg.x,
+        alive: !!msg.alive,
+      });
+    } else if (msg.t === "finished") {
+      if (!this.finishers.includes(me.id)) {
+        this.finishers.push(me.id);
+        this.broadcast({
+          t: "finished",
+          id: me.id,
+          place: this.finishers.length,
+          name: me.name,
+        });
+      }
+    } else if (msg.t === "reset") {
+      this.finishers = [];
+      this.broadcast({ t: "toLobby" });
     }
   }
 
-  /** Host-only: begin a synchronized countdown once everyone is ready. */
-  tryStart(ws, me) {
+  /** Host-only: start the race with the host-authored course once all ready. */
+  tryStart(ws, me, course) {
     if (!me.host) return;
     const joined = this.roster();
     if (joined.length < 1) return;
@@ -121,14 +147,21 @@ export class RaceRoom extends DurableObject {
       }
       return;
     }
-    // receipt-relative countdown: the broadcast reaches everyone within a few
-    // ms, so local 3-2-1 timers stay in sync without trusting device clocks
-    this.broadcast({ t: "countdown", ms: 3600 });
+    this.finishers = [];
+    // receipt-relative countdown carrying the shared course: the broadcast
+    // reaches everyone within a few ms, so local 3-2-1 timers stay in sync
+    // without trusting device clocks, and everyone races the same track
+    this.broadcast({ t: "countdown", ms: 3600, course: course ?? null });
   }
 
   broadcast(obj) {
+    this.broadcastExcept(null, obj);
+  }
+
+  broadcastExcept(exclude, obj) {
     const s = JSON.stringify(obj);
     for (const w of this.ctx.getWebSockets()) {
+      if (w === exclude) continue;
       try {
         w.send(s);
       } catch {

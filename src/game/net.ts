@@ -3,6 +3,8 @@
  * RaceRoom Durable Object. It auto-joins on open and surfaces roster /
  * countdown / error events via callbacks.
  */
+import type { Course } from "./course";
+
 export type RosterPlayer = {
   id: string;
   name: string;
@@ -11,9 +13,14 @@ export type RosterPlayer = {
   host: boolean;
 };
 
+export type PosUpdate = { id: string; x: number; alive: boolean };
+
 type Handlers = {
   roster?: (players: RosterPlayer[], youId: string) => void;
-  countdown?: (startAt: number) => void;
+  countdown?: (ms: number, course: Course) => void;
+  pos?: (u: PosUpdate) => void;
+  finished?: (id: string, place: number, name: string) => void;
+  toLobby?: () => void;
   cantStart?: (reason: string) => void;
   closed?: () => void;
 };
@@ -74,7 +81,17 @@ export class RaceClient {
         this.youId = m.you as string;
         this.h.roster?.(this.players, this.youId);
       } else if (m.t === "countdown") {
-        this.h.countdown?.(m.startAt as number);
+        this.h.countdown?.(m.ms as number, m.course as Course);
+      } else if (m.t === "pos") {
+        this.h.pos?.({
+          id: m.id as string,
+          x: m.x as number,
+          alive: m.alive as boolean,
+        });
+      } else if (m.t === "finished") {
+        this.h.finished?.(m.id as string, m.place as number, String(m.name ?? ""));
+      } else if (m.t === "toLobby") {
+        this.h.toLobby?.();
       } else if (m.t === "cantStart") {
         this.h.cantStart?.(String(m.reason ?? ""));
       }
@@ -97,8 +114,21 @@ export class RaceClient {
     this.send({ t: "ready", ready });
   }
 
-  start() {
-    this.send({ t: "start" });
+  /** Host-only: start the race with the course the host authored. */
+  start(course: Course) {
+    this.send({ t: "start", course });
+  }
+
+  sendPos(x: number, alive: boolean) {
+    this.send({ t: "pos", x, alive });
+  }
+
+  sendFinished(x: number) {
+    this.send({ t: "finished", x });
+  }
+
+  reset() {
+    this.send({ t: "reset" });
   }
 
   me(): RosterPlayer | undefined {
