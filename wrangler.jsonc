@@ -16,6 +16,10 @@
       "database_id": "71ddd685-9578-47c8-8b42-bf3a79d769d1"
     }
   ],
+  "durable_objects": {
+    "bindings": [{ "name": "RACE_ROOM", "class_name": "RaceRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RaceRoom"] }],
   "observability": {
     "enabled": true
   }

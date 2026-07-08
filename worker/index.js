@@ -1,9 +1,10 @@
 /**
- * Kiwi Run leaderboard API + static game hosting.
+ * Kiwi Run leaderboard API + static game hosting + Cross Country multiplayer.
  *
  * GET  /api/scores        -> { top: [{name, score, country}] }
  * GET  /api/scores/token  -> { token }   (issued when a run starts)
  * POST /api/scores        -> { top, rank } | { error }
+ * WS   /api/race/<CODE>    -> Cross Country race room (RaceRoom Durable Object)
  *
  * Anti-cheat: scores must carry a run token. The token proves when the
  * run started, and the server rejects any score that would have been
@@ -13,6 +14,7 @@
  * a tiny Claude Haiku prompt for anything the heuristic can't judge.
  * Results are cached per name; fails open so the game never breaks.
  */
+export { RaceRoom } from "./race-room.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -132,6 +134,18 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const secret = env.SCORE_SECRET ?? "dev-secret-change-me";
+
+    // Cross Country: hand the WebSocket to the room's Durable Object
+    if (url.pathname.startsWith("/api/race/")) {
+      const code = url.pathname.slice("/api/race/".length).toUpperCase();
+      if (!/^[A-Z]{4}$/.test(code)) {
+        return new Response("bad room code", { status: 400, headers: CORS });
+      }
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("expected websocket", { status: 426, headers: CORS });
+      }
+      return env.RACE_ROOM.getByName(code).fetch(request);
+    }
 
     if (url.pathname === "/api/scores/token" && request.method === "GET") {
       const ts = String(Date.now());
