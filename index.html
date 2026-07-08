@@ -40,6 +40,43 @@
       <p>Rotate your phone for the best kiwi experience!</p>
     </div>
 
+    <button id="cc-btn" class="hidden">🏁 Cross Country · Multiplayer</button>
+
+    <div id="lobby" class="hidden">
+      <div class="lobby-card">
+        <section id="lobby-entry">
+          <h2>🏁 Cross Country</h2>
+          <p class="lobby-sub">Race your friends on the exact same course.</p>
+          <input id="lobby-name" maxlength="12" placeholder="Your name" autocomplete="off" />
+          <button id="lobby-create" class="lobby-primary">Create a race</button>
+          <div class="lobby-or">— or join with a code —</div>
+          <div class="lobby-joinrow">
+            <input id="lobby-code" maxlength="4" placeholder="CODE" autocomplete="off" />
+            <button id="lobby-join">Join</button>
+          </div>
+          <p id="lobby-entry-msg" class="lobby-msg"></p>
+          <button id="lobby-back" class="lobby-text">Back to game</button>
+        </section>
+
+        <section id="lobby-room" class="hidden">
+          <h2>Race <span id="lobby-roomcode">····</span></h2>
+          <p class="lobby-sub">Read the code to your friends so they can join.</p>
+          <ul id="lobby-players"></ul>
+          <label id="lobby-ready-wrap">
+            <input type="checkbox" id="lobby-ready" />
+            <span>I'm ready!</span>
+          </label>
+          <button id="lobby-start" class="lobby-primary hidden">Start race</button>
+          <p id="lobby-room-msg" class="lobby-msg"></p>
+          <button id="lobby-leave" class="lobby-text">Leave lobby</button>
+        </section>
+
+        <section id="lobby-countdown" class="hidden">
+          <div id="lobby-count-num">3</div>
+        </section>
+      </div>
+    </div>
+
     <div id="name-entry" class="hidden">
       <div class="ne-card">
         <h2>🏆 GLOBAL TOP 10!</h2>

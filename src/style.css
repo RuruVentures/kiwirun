@@ -68,6 +68,203 @@ body {
   }
 }
 
+/* --- Cross Country button on the title screen --- */
+#cc-btn {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 25;
+  border: 3px solid #ffe066;
+  border-radius: 12px;
+  background: #0e2415;
+  color: #ffe066;
+  font-family: system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+  padding: 12px 22px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+#cc-btn.hidden {
+  display: none;
+}
+#cc-btn:active {
+  transform: translateX(-50%) scale(0.96);
+}
+
+/* --- lobby overlay --- */
+#lobby {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 12, 7, 0.72);
+  font-family: system-ui, sans-serif;
+}
+#lobby.hidden {
+  display: none;
+}
+.lobby-card {
+  background: #0e2415;
+  border: 3px solid #ffe066;
+  border-radius: 16px;
+  padding: 22px 24px;
+  width: min(94vw, 420px);
+  color: #fff;
+  text-align: center;
+}
+.lobby-card h2 {
+  color: #ffe066;
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.lobby-sub {
+  color: #cfe8c8;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.lobby-card input {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 18px;
+  border-radius: 8px;
+  border: 2px solid #4e9a4a;
+  background: #08170d;
+  color: #fff;
+  text-align: center;
+  outline: none;
+  margin-bottom: 10px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.lobby-card input:focus {
+  border-color: #ffe066;
+}
+#lobby-code {
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  font-weight: 800;
+}
+.lobby-card button {
+  font-family: inherit;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.lobby-primary {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  background: #ffe066;
+  color: #2a2000;
+  margin-bottom: 6px;
+}
+.lobby-primary:disabled {
+  background: #6b7a5a;
+  color: #2a2a20;
+  cursor: default;
+}
+.lobby-or {
+  color: #8ba888;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.lobby-joinrow {
+  display: flex;
+  gap: 8px;
+}
+.lobby-joinrow input {
+  flex: 1;
+  margin-bottom: 0;
+}
+.lobby-joinrow button {
+  padding: 0 18px;
+  background: #4e9a4a;
+  color: #fff;
+}
+.lobby-text {
+  background: none;
+  color: #9fb0a0;
+  font-size: 13px;
+  margin-top: 12px;
+  text-decoration: underline;
+}
+.lobby-msg {
+  color: #ffb35e;
+  font-size: 13px;
+  min-height: 18px;
+  margin-top: 8px;
+}
+#lobby-roomcode {
+  color: #9fe066;
+  letter-spacing: 4px;
+}
+#lobby-players {
+  list-style: none;
+  margin: 6px 0 14px;
+  padding: 0;
+  text-align: left;
+}
+#lobby-players li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #12291a;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.lobby-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+.lobby-pname {
+  flex: 1;
+  font-weight: 700;
+}
+.lobby-tag {
+  font-size: 13px;
+  color: #cfe8c8;
+}
+.lobby-ready-yes {
+  color: #9fe066;
+}
+#lobby-ready-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+#lobby-ready {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+#lobby-countdown {
+  padding: 30px 0;
+}
+#lobby-count-num {
+  font-size: 120px;
+  font-weight: 900;
+  color: #ffe066;
+  text-shadow: 0 4px 0 #3a2a00;
+  line-height: 1;
+}
+.hidden {
+  display: none !important;
+}
+
 /* --- leaderboard name entry overlay --- */
 #name-entry {
   position: fixed;

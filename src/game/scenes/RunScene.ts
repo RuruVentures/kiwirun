@@ -3,6 +3,7 @@ import { sfx, startMusic, stopMusic, toggleMusic } from "../audio";
 import { Terrain } from "../terrain";
 import { beginRun } from "../leaderboard";
 import { CourseStream, type PestKind } from "../course";
+import { isLobbyOpen } from "../lobby";
 
 // texture / hitbox spec per ground pest kind
 const GROUND: Record<
@@ -699,6 +700,7 @@ export class RunScene extends Phaser.Scene {
   // ================================================================= input
   private pressJump() {
     if (this.phase === "ready") {
+      if (isLobbyOpen()) return; // don't start solo behind the lobby overlay
       this.startRun();
       return;
     }

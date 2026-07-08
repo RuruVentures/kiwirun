@@ -168,6 +168,11 @@ export class UIScene extends Phaser.Scene {
     this.overPanel = this.buildOverPanel();
     this.overPanel.setVisible(false);
 
+    // the Cross Country button (DOM) shows on the title & game-over screens
+    const ccBtn = document.getElementById("cc-btn");
+    const showCc = (on: boolean) => ccBtn?.classList.toggle("hidden", !on);
+    showCc(true);
+
     // ---------------------------------------------------------- events
     const g = this.game.events;
     g.on("score", (s: number) => this.scoreText.setText(String(s)));
@@ -180,6 +185,7 @@ export class UIScene extends Phaser.Scene {
       this.overPanel.setVisible(false);
       this.recordTween?.stop();
       this.closeEntry();
+      showCc(false);
     });
 
     // name entry overlay (plain DOM so mobile keyboards behave)
@@ -656,5 +662,6 @@ export class UIScene extends Phaser.Scene {
     }
 
     this.overPanel.setVisible(true);
+    document.getElementById("cc-btn")?.classList.remove("hidden");
   }
 }

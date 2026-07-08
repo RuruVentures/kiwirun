@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { gameConfig } from "./game/config";
+import { initLobby } from "./game/lobby";
 import "./style.css";
 
 // NOTE: no manual preventDefault on Space/Arrows here! Phaser ignores keydown
@@ -8,6 +9,9 @@ const game = new Phaser.Game(gameConfig);
 
 // handy for debugging in the browser console
 (window as unknown as { __game: Phaser.Game }).__game = game;
+
+// Cross Country lobby (DOM overlay)
+initLobby(game);
 
 document.body.style.overflow = "hidden";
 

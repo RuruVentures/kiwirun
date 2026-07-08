@@ -87,6 +87,39 @@ export class RaceRoom extends DurableObject {
       me.ready = !!msg.ready;
       ws.serializeAttachment(me);
       this.broadcastRoster();
+    } else if (msg.t === "start") {
+      this.tryStart(ws, me);
+    }
+  }
+
+  /** Host-only: begin a synchronized countdown once everyone is ready. */
+  tryStart(ws, me) {
+    if (!me.host) return;
+    const joined = this.roster();
+    if (joined.length < 1) return;
+    if (!joined.every((p) => p.ready)) {
+      try {
+        ws.send(
+          JSON.stringify({ t: "cantStart", reason: "not everyone is ready" })
+        );
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    // receipt-relative countdown: the broadcast reaches everyone within a few
+    // ms, so local 3-2-1 timers stay in sync without trusting device clocks
+    this.broadcast({ t: "countdown", ms: 3600 });
+  }
+
+  broadcast(obj) {
+    const s = JSON.stringify(obj);
+    for (const w of this.ctx.getWebSockets()) {
+      try {
+        w.send(s);
+      } catch {
+        // socket gone
+      }
     }
   }
 

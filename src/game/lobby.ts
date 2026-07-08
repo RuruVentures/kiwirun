@@ -1,0 +1,191 @@
+import Phaser from "phaser";
+import { RaceClient, randomCode, type RosterPlayer } from "./net";
+
+/**
+ * The Cross Country lobby — a DOM overlay driven by a RaceClient.
+ * Create or join a room by code, see everyone gather, tick "ready", and the
+ * host starts a synchronized countdown. The race itself arrives in Phase 3.
+ */
+
+let open = false;
+export function isLobbyOpen() {
+  return open;
+}
+
+const $ = (id: string) => document.getElementById(id)!;
+
+export function initLobby(game: Phaser.Game) {
+  const overlay = $("lobby");
+  const entry = $("lobby-entry");
+  const room = $("lobby-room");
+  const countdown = $("lobby-countdown");
+  const countNum = $("lobby-count-num");
+  const nameInput = $("lobby-name") as HTMLInputElement;
+  const codeInput = $("lobby-code") as HTMLInputElement;
+  const roomCode = $("lobby-roomcode");
+  const playersUl = $("lobby-players");
+  const readyBox = $("lobby-ready") as HTMLInputElement;
+  const startBtn = $("lobby-start") as HTMLButtonElement;
+  const entryMsg = $("lobby-entry-msg");
+  const roomMsg = $("lobby-room-msg");
+  const ccBtn = $("cc-btn");
+
+  let client: RaceClient | undefined;
+  let countTimer: number | undefined;
+
+  const show = (el: HTMLElement) => el.classList.remove("hidden");
+  const hide = (el: HTMLElement) => el.classList.add("hidden");
+
+  function setKeyboard(on: boolean) {
+    if (game.input.keyboard) game.input.keyboard.enabled = on;
+  }
+
+  function openLobby() {
+    open = true;
+    setKeyboard(false);
+    nameInput.value = localStorage.getItem("kiwirun_name") ?? "";
+    codeInput.value = "";
+    entryMsg.textContent = "";
+    show(entry);
+    hide(room);
+    hide(countdown);
+    show(overlay);
+    setTimeout(() => nameInput.focus(), 50);
+  }
+
+  function closeLobby() {
+    if (countTimer) clearInterval(countTimer);
+    countTimer = undefined;
+    client?.close();
+    client = undefined;
+    hide(overlay);
+    open = false;
+    setKeyboard(true);
+  }
+
+  function connectRoom(code: string, name: string) {
+    localStorage.setItem("kiwirun_name", name);
+    client = new RaceClient();
+    client.on({
+      roster: (players, youId) => renderRoom(players, youId),
+      countdown: (ms) => runCountdown(ms),
+      cantStart: (reason) => {
+        roomMsg.textContent = reason;
+      },
+      closed: () => {
+        if (open) roomMsg.textContent = "Connection lost.";
+      },
+    });
+    client.connect(code, name);
+    roomCode.textContent = code;
+    readyBox.checked = false;
+    roomMsg.textContent = "";
+    hide(entry);
+    show(room);
+  }
+
+  function renderRoom(players: RosterPlayer[], youId: string) {
+    playersUl.innerHTML = "";
+    for (const p of players) {
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "lobby-dot";
+      dot.style.background = "#" + p.color.toString(16).padStart(6, "0");
+      const name = document.createElement("span");
+      name.className = "lobby-pname";
+      name.textContent = p.name + (p.id === youId ? " (you)" : "");
+      const tag = document.createElement("span");
+      tag.className = "lobby-tag" + (p.ready ? " lobby-ready-yes" : "");
+      tag.textContent = (p.host ? "👑 " : "") + (p.ready ? "✓ ready" : "…");
+      li.append(dot, name, tag);
+      playersUl.append(li);
+    }
+
+    const iAmHost = client?.isHost() ?? false;
+    const allReady = players.length > 0 && players.every((p) => p.ready);
+    startBtn.classList.toggle("hidden", !iAmHost);
+    startBtn.disabled = !allReady;
+    startBtn.textContent = allReady
+      ? "Start race!"
+      : "Waiting for everyone…";
+  }
+
+  function runCountdown(ms: number) {
+    hide(entry);
+    hide(room);
+    show(countdown);
+    const end = performance.now() + ms;
+    const tick = () => {
+      const left = end - performance.now();
+      if (left > 0) {
+        countNum.textContent = String(Math.ceil(left / 1000));
+      } else {
+        countNum.textContent = "GO!";
+        if (countTimer) clearInterval(countTimer);
+        countTimer = undefined;
+        game.events.emit("raceStart", { code: client?.code });
+        // Phase 2 placeholder: the race lands in the next update
+        roomMsg.textContent = "";
+        setTimeout(() => {
+          if (open) closeLobby();
+        }, 1200);
+      }
+    };
+    tick();
+    countTimer = window.setInterval(tick, 100);
+  }
+
+  // ---- entry wiring
+  ccBtn.addEventListener("click", openLobby);
+  $("lobby-back").addEventListener("click", closeLobby);
+  $("lobby-leave").addEventListener("click", () => {
+    client?.close();
+    client = undefined;
+    show(entry);
+    hide(room);
+  });
+
+  $("lobby-create").addEventListener("click", () => {
+    const name = nameInput.value.trim().slice(0, 12);
+    if (name.length < 1) {
+      entryMsg.textContent = "Enter your name first!";
+      nameInput.focus();
+      return;
+    }
+    connectRoom(randomCode(), name);
+  });
+
+  $("lobby-join").addEventListener("click", () => {
+    const name = nameInput.value.trim().slice(0, 12);
+    const code = codeInput.value.trim().toUpperCase();
+    if (name.length < 1) {
+      entryMsg.textContent = "Enter your name first!";
+      nameInput.focus();
+      return;
+    }
+    if (!/^[A-Z]{4}$/.test(code)) {
+      entryMsg.textContent = "A code is 4 letters.";
+      codeInput.focus();
+      return;
+    }
+    connectRoom(code, name);
+  });
+
+  codeInput.addEventListener("input", () => {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, "");
+  });
+  readyBox.addEventListener("change", () => client?.setReady(readyBox.checked));
+  startBtn.addEventListener("click", () => client?.start());
+
+  // let inputs handle their own keys without Phaser interfering
+  for (const el of [nameInput, codeInput]) {
+    el.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        (entry.querySelector(el === codeInput ? "#lobby-join" : "#lobby-create") as HTMLButtonElement).click();
+      }
+    });
+  }
+
+  game.events.on("openLobby", openLobby);
+}
