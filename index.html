@@ -61,6 +61,10 @@
         <section id="lobby-room" class="hidden">
           <h2>Race <span id="lobby-roomcode">····</span></h2>
           <p class="lobby-sub" id="lobby-room-sub"></p>
+          <div id="lobby-modes">
+            <button class="lobby-mode" data-mode="finish">🏁 Finish line</button>
+            <button class="lobby-mode" data-mode="last">💀 Last kiwi</button>
+          </div>
           <ul id="lobby-players"></ul>
           <label id="lobby-ready-wrap">
             <input type="checkbox" id="lobby-ready" />
@@ -74,6 +78,14 @@
         <section id="lobby-countdown" class="hidden">
           <div id="lobby-count-num">3</div>
         </section>
+      </div>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="lobby-card">
+        <h2>🏆 Results</h2>
+        <ol id="results-list"></ol>
+        <button id="results-again" class="lobby-primary">Play again</button>
       </div>
     </div>
 

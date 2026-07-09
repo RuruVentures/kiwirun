@@ -205,6 +205,30 @@ body {
   color: #9fe066;
   letter-spacing: 4px;
 }
+#lobby-modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.lobby-mode {
+  flex: 1;
+  padding: 9px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid #2c5232;
+  border-radius: 8px;
+  background: #12291a;
+  color: #9fb0a0;
+}
+.lobby-mode.active {
+  border-color: #ffe066;
+  background: #1c3a26;
+  color: #ffe066;
+}
+.lobby-mode:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
 #lobby-players {
   list-style: none;
   margin: 6px 0 14px;
@@ -265,6 +289,58 @@ body {
 }
 .hidden {
   display: none !important;
+}
+
+/* --- Cross Country results / podium --- */
+#results {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 12, 7, 0.78);
+  font-family: system-ui, sans-serif;
+}
+#results.hidden {
+  display: none;
+}
+#results-list {
+  list-style: none;
+  margin: 10px 0 16px;
+  padding: 0;
+  text-align: left;
+}
+#results-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #12291a;
+  margin-bottom: 6px;
+  font-size: 17px;
+  color: #fff;
+}
+#results-list li.me {
+  background: #1c3a26;
+  border: 2px solid #ffe066;
+}
+#results-list .r-place {
+  font-size: 20px;
+  width: 34px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+#results-list .r-name {
+  flex: 1;
+  font-weight: 700;
+}
+#results-list .r-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: 0 0 auto;
 }
 
 /* --- leaderboard name entry overlay --- */

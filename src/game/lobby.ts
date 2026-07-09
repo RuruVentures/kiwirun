@@ -1,15 +1,18 @@
 import Phaser from "phaser";
 import { RaceClient, randomCode, checkRoom, type RosterPlayer } from "./net";
-import { buildCourseObjects, type Course } from "./course";
+import { buildCourseObjects, type Course, type RaceMode } from "./course";
 import { generateTerrain } from "./terrain";
 
 const FINISH_PX = 12000; // ~1200 m to the finish line
+const LAST_PX = 60000; // "last kiwi" course is long enough to never run out
 
-function makeCourse(): Course {
+function makeCourse(mode: RaceMode): Course {
+  const len = mode === "last" ? LAST_PX : FINISH_PX;
   return {
-    terrain: generateTerrain(FINISH_PX, Math.random),
-    ...buildCourseObjects(Math.random, FINISH_PX),
-    finishPx: FINISH_PX,
+    mode,
+    terrain: generateTerrain(len, Math.random),
+    ...buildCourseObjects(Math.random, len),
+    finishPx: mode === "last" ? 0 : FINISH_PX,
   };
 }
 
@@ -45,7 +48,12 @@ export function initLobby(game: Phaser.Game) {
   const roomMsg = $("lobby-room-msg");
   const ccBtn = $("cc-btn");
 
+  const modeBtns = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(".lobby-mode")
+  );
+
   let client: RaceClient | undefined;
+  let mode: RaceMode = "finish";
   let countTimer: number | undefined;
   let checkTimer: number | undefined;
   let checkSeq = 0;
@@ -109,7 +117,7 @@ export function initLobby(game: Phaser.Game) {
     localStorage.setItem("kiwirun_name", name);
     client = new RaceClient();
     client.on({
-      roster: (players, youId) => renderRoom(players, youId),
+      roster: (players, youId, m) => renderRoom(players, youId, m),
       countdown: (ms, course) => runCountdown(ms, course),
       cantStart: (reason) => {
         roomMsg.textContent = reason;
@@ -126,7 +134,14 @@ export function initLobby(game: Phaser.Game) {
     show(room);
   }
 
-  function renderRoom(players: RosterPlayer[], youId: string) {
+  function renderRoom(players: RosterPlayer[], youId: string, m: RaceMode) {
+    mode = m;
+    const iAmHostNow = players.find((p) => p.id === youId)?.host ?? false;
+    for (const b of modeBtns) {
+      b.classList.toggle("active", b.dataset.mode === m);
+      b.disabled = !iAmHostNow; // only the host picks the mode
+    }
+
     playersUl.innerHTML = "";
     for (const p of players) {
       const li = document.createElement("li");
@@ -223,12 +238,69 @@ export function initLobby(game: Phaser.Game) {
     refreshGo();
   });
   readyBox.addEventListener("change", () => client?.setReady(readyBox.checked));
-  startBtn.addEventListener("click", () => client?.start(makeCourse()));
+  startBtn.addEventListener("click", () => client?.start(makeCourse(mode)));
+  for (const b of modeBtns) {
+    b.addEventListener("click", () =>
+      client?.setMode(b.dataset.mode as RaceMode)
+    );
+  }
 
-  // race asked to end — drop the connection and return to the title
-  game.events.on("raceExit", () => {
+  // ---- results / replay
+  const results = $("results");
+  const resultsList = $("results-list");
+  $("results-again").addEventListener("click", () => {
+    client?.reset(); // server broadcasts toLobby → everyone back to the room
+    hide(results);
+  });
+
+  game.events.on(
+    "raceResults",
+    (p: { list: { id: string; name: string; place: number }[]; youId: string }) => {
+      const colors = new Map(
+        (client?.players ?? []).map((pl) => [pl.id, pl.color])
+      );
+      const medal = (place: number) =>
+        place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : `${place}.`;
+      resultsList.innerHTML = "";
+      for (const s of [...p.list].sort((a, b) => a.place - b.place)) {
+        const li = document.createElement("li");
+        if (s.id === p.youId) li.className = "me";
+        const place = document.createElement("span");
+        place.className = "r-place";
+        place.textContent = medal(s.place);
+        const dot = document.createElement("span");
+        dot.className = "r-dot";
+        dot.style.background =
+          "#" + (colors.get(s.id) ?? 0xffffff).toString(16).padStart(6, "0");
+        const name = document.createElement("span");
+        name.className = "r-name";
+        name.textContent = s.name + (s.id === p.youId ? " (you)" : "");
+        li.append(place, dot, name);
+        resultsList.append(li);
+      }
+      show(results);
+    }
+  );
+
+  // "play again": server reset → back to the lobby room (client stays live)
+  game.events.on("raceReturnLobby", () => {
+    hide(results);
+    open = true;
+    setKeyboard(false);
+    readyBox.checked = false;
+    hide(entry);
+    hide(countdown);
+    show(room);
+    show(overlay);
+  });
+
+  // fully left (disconnect) → drop the connection, back to title
+  game.events.on("toTitle", () => {
     client?.close();
     client = undefined;
+    hide(results);
+    hide(overlay);
+    open = false;
   });
 
   // let inputs handle their own keys without Phaser interfering

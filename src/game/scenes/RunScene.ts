@@ -2,7 +2,12 @@ import Phaser from "phaser";
 import { sfx, startMusic, stopMusic, toggleMusic } from "../audio";
 import { Terrain } from "../terrain";
 import { beginRun } from "../leaderboard";
-import { CourseStream, type PestKind, type Course } from "../course";
+import {
+  CourseStream,
+  type PestKind,
+  type Course,
+  type RaceMode,
+} from "../course";
 import { isLobbyOpen } from "../lobby";
 import type { RaceClient, RosterPlayer, PosUpdate } from "../net";
 
@@ -189,9 +194,10 @@ export class RunScene extends Phaser.Scene {
   private raceCourse?: Course;
   private myId = "";
   private myColor = 0xffe066;
+  private raceKind: RaceMode = "finish";
   private finishPx = 0;
   private finished = false;
-  private canExitAt = 0;
+  private spectating = false;
   private raceStartAt = 0;
   private stumbleUntil = 0;
   private posAccum = 0;
@@ -276,8 +282,12 @@ export class RunScene extends Phaser.Scene {
         this.smash(o, `+${SMASH_POINTS}`);
         return;
       }
-      if (this.raceMode) this.raceStumble();
-      else this.die(killer, o);
+      if (this.raceMode) {
+        if (this.raceKind === "last") this.raceEliminate();
+        else this.raceStumble();
+      } else {
+        this.die(killer, o);
+      }
     });
 
     this.physics.add.overlap(this.player, this.fruits, (_p, obj) => {
@@ -743,10 +753,7 @@ export class RunScene extends Phaser.Scene {
 
   // ================================================================= input
   private pressJump() {
-    if (this.raceMode && this.finished) {
-      if (this.time.now > this.canExitAt) this.exitRace();
-      return;
-    }
+    if (this.raceMode && this.finished) return; // done — results screen handles it
     if (this.phase === "ready") {
       if (isLobbyOpen()) return; // don't start solo behind the lobby overlay
       this.startRun();
@@ -1675,8 +1682,10 @@ export class RunScene extends Phaser.Scene {
     this.raceClient = p.client;
     this.raceCourse = p.course;
     this.myId = p.youId;
+    this.raceKind = p.course.mode;
     this.finishPx = p.course.finishPx;
     this.finished = false;
+    this.spectating = false;
     this.stumbleUntil = 0;
     this.raceStartAt = this.time.now; // ≈ GO; races are timed from here
 
@@ -1719,8 +1728,11 @@ export class RunScene extends Phaser.Scene {
 
     this.raceClient.on({
       pos: (u) => this.onGhostPos(u),
-      standings: (list) => this.onStandings(list),
-      toLobby: () => this.exitRace(),
+      standings: (list, over) => this.onStandings(list, over),
+      toLobby: () => this.teardownRace(false),
+      closed: () => {
+        if (this.raceMode) this.teardownRace(true);
+      },
     });
 
     this.idleTween?.stop();
@@ -1746,7 +1758,9 @@ export class RunScene extends Phaser.Scene {
       const predicted = g.lastX + g.vel * ahead;
       g.dist += (predicted - g.dist) * Math.min(1, 12 * dt);
       const sx = PLAYER_X + (g.dist - this.distance);
-      const show = !this.finished && sx > -80 && sx < this.scale.width + 80;
+      // hide ghosts once you finish, but keep them while spectating (out)
+      const canSee = !this.finished || this.spectating;
+      const show = canSee && sx > -80 && sx < this.scale.width + 80;
       g.img.setVisible(show);
       g.label.setVisible(show);
       if (show) {
@@ -1760,7 +1774,13 @@ export class RunScene extends Phaser.Scene {
 
     this.drawRaceBar();
 
-    if (!this.finished && this.distance >= this.finishPx) this.finishRace();
+    if (
+      this.raceKind === "finish" &&
+      !this.finished &&
+      this.distance >= this.finishPx
+    ) {
+      this.finishRace();
+    }
   }
 
   private drawRaceBar() {
@@ -1804,12 +1824,13 @@ export class RunScene extends Phaser.Scene {
     g.lastMsgAt = now;
   }
 
-  private onStandings(list: { id: string; name: string; place: number }[]) {
+  private onStandings(
+    list: { id: string; name: string; place: number }[],
+    over: boolean
+  ) {
     const mine = list.find((s) => s.id === this.myId);
-    if (mine) {
-      this.showRaceBanner(`🏁 ${ordinal(mine.place)} place! · tap to continue`);
-      this.canExitAt = this.time.now + 800;
-    } else {
+    if (mine) this.showRaceBanner(`🏁 ${ordinal(mine.place)} place!`);
+    else {
       const latest = list[list.length - 1];
       if (latest) {
         this.floater(
@@ -1820,6 +1841,30 @@ export class RunScene extends Phaser.Scene {
         );
       }
     }
+    if (over) {
+      this.game.events.emit("raceResults", { list, youId: this.myId });
+    }
+  }
+
+  private starsAt(x: number, y: number) {
+    // dizzy stars circling the head for the stumble
+    for (let i = 0; i < 3; i++) {
+      const star = this.add.image(x, y, "spark").setDepth(13).setScale(1.2);
+      const a0 = (i / 3) * Math.PI * 2;
+      this.tweens.add({
+        targets: star,
+        angle: 360,
+        duration: 1400,
+        onUpdate: (tw) => {
+          const a = a0 + (tw.progress ?? 0) * Math.PI * 4;
+          star.setPosition(
+            this.player.x + Math.cos(a) * 22,
+            this.player.y - 42 + Math.sin(a) * 8
+          );
+        },
+        onComplete: () => star.destroy(),
+      });
+    }
   }
 
   private raceStumble() {
@@ -1828,11 +1873,26 @@ export class RunScene extends Phaser.Scene {
     this.invulnUntil = this.stumbleUntil; // pass through the pest while tripping
     this.player.setTint(0xff8888);
     this.feathers.explode(6, this.player.x, this.player.y - 20);
+    this.starsAt(this.player.x, this.player.y);
     sfx.thump();
     this.cameras.main.shake(120, 0.006);
     this.time.delayedCall(1500, () => {
       if (!this.finished) this.player.clearTint();
     });
+  }
+
+  /** Last-kiwi mode: knocked out — explode, spectate the survivors on the bar. */
+  private raceEliminate() {
+    if (this.finished || this.time.now < this.invulnUntil) return;
+    this.finished = true;
+    this.spectating = true;
+    this.raceClient?.sendDead();
+    sfx.die();
+    this.cameras.main.shake(220, 0.008);
+    this.feathers.explode(22, this.player.x, this.player.y - 24);
+    this.sparks.explode(14, this.player.x, this.player.y - 20);
+    this.player.setVisible(false);
+    this.showRaceBanner("💀 OUT! watching the race…");
   }
 
   private finishRace() {
@@ -1841,8 +1901,7 @@ export class RunScene extends Phaser.Scene {
     this.raceClient?.sendFinished(Math.round(this.time.now - this.raceStartAt));
     sfx.record();
     this.feathers.explode(20, this.player.x, this.player.y - 24);
-    this.showRaceBanner("🏁 FINISH! waiting for your place…");
-    this.canExitAt = this.time.now + 1500;
+    this.showRaceBanner("🏁 FINISH! waiting for the others…");
   }
 
   private showRaceBanner(text: string) {
@@ -1863,12 +1922,18 @@ export class RunScene extends Phaser.Scene {
     this.raceBanner.setText(text).setVisible(true);
   }
 
-  private exitRace() {
-    this.game.events.emit("raceExit");
+  /**
+   * Tear the race down and idle at the title. toTitle=true means we're fully
+   * leaving (disconnected) → the lobby closes; toTitle=false means "play again"
+   * (server reset) → the lobby re-opens the room with the client still live.
+   */
+  private teardownRace(toTitle: boolean) {
+    if (!this.raceMode) return;
     this.raceMode = false;
     this.finished = false;
-    this.raceClient = undefined;
+    this.spectating = false;
     this.raceCourse = undefined;
+    if (toTitle) this.raceClient = undefined;
     this.clearGhosts();
     this.raceBar?.clear().setVisible(false);
     this.raceBanner?.setVisible(false);
@@ -1879,8 +1944,7 @@ export class RunScene extends Phaser.Scene {
     this.nextDeco?.remove(false);
     stopMusic();
 
-    // back to the solo title screen
-    this.player.setAlpha(1).clearTint().setFlipY(false).setAngle(0).setScale(1);
+    this.player.setVisible(true).setAlpha(1).clearTint().setFlipY(false).setAngle(0).setScale(1);
     this.terrain.reset(0);
     this.distance = 0;
     this.player.setPosition(PLAYER_X, this.gy(PLAYER_X));
@@ -1888,6 +1952,7 @@ export class RunScene extends Phaser.Scene {
     this.vy = 0;
     this.drawGround();
     this.phase = "ready";
+    this.idleTween?.stop();
     this.idleTween = this.tweens.add({
       targets: this.player,
       scaleY: 0.94,
@@ -1896,7 +1961,7 @@ export class RunScene extends Phaser.Scene {
       repeat: -1,
       ease: "sine.inout",
     });
-    this.game.events.emit("toTitle");
+    this.game.events.emit(toTitle ? "toTitle" : "raceReturnLobby");
   }
 
   private clearGhosts() {

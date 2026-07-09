@@ -31,7 +31,10 @@ function cleanName(raw) {
 export class RaceRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
-    this.finishers = []; // player ids in the order they crossed the line
+    this.mode = "finish"; // "finish" (race to the line) or "last" (last kiwi)
+    this.finishers = []; // {id,name,elapsed} in finish order (finish mode)
+    this.dead = []; // {id,name} in the order they were knocked out (last mode)
+    this.racers = []; // {id,name} snapshot taken when the race starts
   }
 
   async fetch(request) {
@@ -106,8 +109,15 @@ export class RaceRoom extends DurableObject {
       me.ready = !!msg.ready;
       ws.serializeAttachment(me);
       this.broadcastRoster();
+    } else if (msg.t === "setMode") {
+      if (me.host && (msg.mode === "finish" || msg.mode === "last")) {
+        this.mode = msg.mode;
+        this.broadcastRoster();
+      }
     } else if (msg.t === "start") {
       this.tryStart(ws, me, msg.course);
+    } else if (msg.t === "dead") {
+      this.onDead(me);
     } else if (msg.t === "pos") {
       // relay this racer's progress to everyone else
       this.broadcastExcept(ws, {
@@ -125,8 +135,10 @@ export class RaceRoom extends DurableObject {
         });
         // rank by race time — fair regardless of who has the faster connection
         this.finishers.sort((a, b) => a.elapsed - b.elapsed);
+        const over = this.finishers.length >= this.racers.length;
         this.broadcast({
           t: "standings",
+          over,
           list: this.finishers.map((f, i) => ({
             id: f.id,
             name: f.name,
@@ -136,8 +148,41 @@ export class RaceRoom extends DurableObject {
       }
     } else if (msg.t === "reset") {
       this.finishers = [];
+      this.dead = [];
+      // clear everyone's ready flag for a fresh rematch lobby
+      for (const w of this.ctx.getWebSockets()) {
+        const m = this.meta(w);
+        if (m) {
+          m.ready = false;
+          w.serializeAttachment(m);
+        }
+      }
       this.broadcast({ t: "toLobby" });
+      this.broadcastRoster();
     }
+  }
+
+  /** Last-kiwi mode: a racer was knocked out. Last one standing wins. */
+  onDead(me) {
+    if (this.mode !== "last") return;
+    if (this.dead.some((d) => d.id === me.id)) return;
+    this.dead.push({ id: me.id, name: me.name });
+
+    const n = this.racers.length;
+    // earlier deaths place worse: first out = last place
+    const list = this.dead.map((d, i) => ({
+      id: d.id,
+      name: d.name,
+      place: n - i,
+    }));
+    const alive = this.racers.filter(
+      (r) => !this.dead.some((d) => d.id === r.id)
+    );
+    const over = alive.length <= 1;
+    if (over && alive.length === 1) {
+      list.unshift({ id: alive[0].id, name: alive[0].name, place: 1 });
+    }
+    this.broadcast({ t: "standings", over, list });
   }
 
   /** Host-only: start the race with the host-authored course once all ready. */
@@ -156,6 +201,8 @@ export class RaceRoom extends DurableObject {
       return;
     }
     this.finishers = [];
+    this.dead = [];
+    this.racers = joined.map((p) => ({ id: p.id, name: p.name }));
     // receipt-relative countdown carrying the shared course: the broadcast
     // reaches everyone within a few ms, so local 3-2-1 timers stay in sync
     // without trusting device clocks, and everyone races the same track
@@ -225,7 +272,9 @@ export class RaceRoom extends DurableObject {
       if (w === exclude) continue;
       const me = this.meta(w);
       try {
-        w.send(JSON.stringify({ t: "roster", you: me?.id, players }));
+        w.send(
+          JSON.stringify({ t: "roster", you: me?.id, players, mode: this.mode })
+        );
       } catch {
         // socket already gone — ignore
       }

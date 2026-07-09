@@ -17,12 +17,15 @@ export type PestKind = "rat" | "possum" | "rock1" | "rock2" | "hawk";
 export type CourseObstacle = { x: number; kind: PestKind };
 export type CourseFruit = { x: number; hover: number };
 
+export type RaceMode = "finish" | "last";
+
 /** A full Cross Country track, authored once and shared with every racer. */
 export type Course = {
+  mode: RaceMode;
   terrain: Seg[];
   obstacles: CourseObstacle[];
   fruit: CourseFruit[];
-  finishPx: number; // distance to the finish line, in world pixels
+  finishPx: number; // finish-line distance (px); 0 in "last kiwi" mode
 };
 
 /** Any function returning a float in [0, 1) — Math.random or a seeded PRNG. */

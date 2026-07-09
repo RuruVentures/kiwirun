@@ -3,7 +3,7 @@
  * RaceRoom Durable Object. It auto-joins on open and surfaces roster /
  * countdown / error events via callbacks.
  */
-import type { Course } from "./course";
+import type { Course, RaceMode } from "./course";
 
 export type RosterPlayer = {
   id: string;
@@ -17,10 +17,10 @@ export type PosUpdate = { id: string; x: number; alive: boolean };
 export type Standing = { id: string; name: string; place: number };
 
 type Handlers = {
-  roster?: (players: RosterPlayer[], youId: string) => void;
+  roster?: (players: RosterPlayer[], youId: string, mode: RaceMode) => void;
   countdown?: (ms: number, course: Course) => void;
   pos?: (u: PosUpdate) => void;
-  standings?: (list: Standing[]) => void;
+  standings?: (list: Standing[], over: boolean) => void;
   toLobby?: () => void;
   cantStart?: (reason: string) => void;
   closed?: () => void;
@@ -58,6 +58,7 @@ export class RaceClient {
   code = "";
   youId = "";
   players: RosterPlayer[] = [];
+  mode: RaceMode = "finish";
   private ws?: WebSocket;
   private h: Handlers = {};
 
@@ -80,7 +81,8 @@ export class RaceClient {
       if (m.t === "roster") {
         this.players = m.players as RosterPlayer[];
         this.youId = m.you as string;
-        this.h.roster?.(this.players, this.youId);
+        this.mode = (m.mode as RaceMode) ?? "finish";
+        this.h.roster?.(this.players, this.youId, this.mode);
       } else if (m.t === "countdown") {
         this.h.countdown?.(m.ms as number, m.course as Course);
       } else if (m.t === "pos") {
@@ -90,7 +92,7 @@ export class RaceClient {
           alive: m.alive as boolean,
         });
       } else if (m.t === "standings") {
-        this.h.standings?.(m.list as Standing[]);
+        this.h.standings?.(m.list as Standing[], !!m.over);
       } else if (m.t === "toLobby") {
         this.h.toLobby?.();
       } else if (m.t === "cantStart") {
@@ -113,6 +115,14 @@ export class RaceClient {
 
   setReady(ready: boolean) {
     this.send({ t: "ready", ready });
+  }
+
+  setMode(mode: RaceMode) {
+    this.send({ t: "setMode", mode });
+  }
+
+  sendDead() {
+    this.send({ t: "dead" });
   }
 
   /** Host-only: start the race with the course the host authored. */
