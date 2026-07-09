@@ -205,6 +205,9 @@ export class RunScene extends Phaser.Scene {
   private ghosts = new Map<string, Ghost>();
   private raceBar?: Phaser.GameObjects.Graphics;
   private raceBanner?: Phaser.GameObjects.Text;
+  private finishGfx?: Phaser.GameObjects.Graphics;
+  private finishText?: Phaser.GameObjects.Text;
+  private glittered = false;
 
   constructor() {
     super("Run");
@@ -1689,7 +1692,26 @@ export class RunScene extends Phaser.Scene {
     this.spectating = false;
     this.stumbleUntil = 0;
     this.raceHits = 0;
+    this.glittered = false;
     this.raceStartAt = this.time.now; // ≈ GO; races are timed from here
+
+    // finish gate (finish-line mode only)
+    this.finishGfx?.destroy();
+    this.finishText?.destroy();
+    this.finishGfx = undefined;
+    this.finishText = undefined;
+    if (this.raceKind === "finish") {
+      this.finishGfx = this.add.graphics().setDepth(8);
+      this.finishText = this.add
+        .text(-999, 0, "🏁 FINISH", {
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "16px",
+          fontStyle: "bold",
+          color: "#1a1a1a",
+        })
+        .setOrigin(0.5)
+        .setDepth(9);
+    }
 
     this.clearGhosts();
     for (const pl of p.players) {
@@ -1776,13 +1798,72 @@ export class RunScene extends Phaser.Scene {
 
     this.drawRaceBar();
 
-    if (
-      this.raceKind === "finish" &&
-      !this.finished &&
-      this.distance >= this.finishPx
-    ) {
-      this.finishRace();
+    if (this.raceKind === "finish") {
+      this.drawFinishGate();
+      if (!this.finished && this.distance >= this.finishPx) this.finishRace();
     }
+  }
+
+  private drawFinishGate() {
+    const g = this.finishGfx;
+    const t = this.finishText;
+    if (!g || !t) return;
+    // aligned with the crossing check: at the kiwi when distance == finishPx
+    const sx = PLAYER_X + (this.finishPx - this.distance);
+    if (sx < -60 || sx > this.scale.width + 140) {
+      g.clear();
+      t.setVisible(false);
+      return;
+    }
+    const groundY = this.gy(sx);
+    const topY = groundY - 150;
+    g.clear();
+    // posts
+    g.fillStyle(0x6b4a2a, 1);
+    g.fillRect(sx - 52, topY, 9, 150);
+    g.fillRect(sx + 43, topY, 9, 150);
+    // checkered banner
+    const bx = sx - 52;
+    const by = topY - 6;
+    const bw = 104;
+    const cols = 8;
+    const cw = bw / cols;
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(bx, by, bw, 28);
+    g.fillStyle(0x1a1a1a, 1);
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < 2; j++) {
+        if ((i + j) % 2 === 0) g.fillRect(bx + i * cw, by + j * 14, cw, 14);
+      }
+    }
+    // the tape — unbroken until you run through it
+    if (!this.finished) {
+      g.lineStyle(5, 0xff3860, 1);
+      g.lineBetween(sx - 48, groundY - 32, sx + 48, groundY - 32);
+    }
+    t.setPosition(sx, by - 14).setVisible(true);
+  }
+
+  private confettiRain() {
+    if (this.glittered) return;
+    this.glittered = true;
+    const rain = this.add
+      .particles(0, 0, "spark", {
+        x: { min: 0, max: this.scale.width },
+        y: -10,
+        quantity: 3,
+        frequency: 45,
+        speedY: { min: 120, max: 280 },
+        speedX: { min: -50, max: 50 },
+        gravityY: 160,
+        lifespan: 2600,
+        scale: { start: 1.2, end: 0.2 },
+        rotate: { min: 0, max: 360 },
+        tint: [0xffe066, 0xffffff, 0x9fe066, 0xff6b5e, 0x6fb0d8],
+      })
+      .setDepth(23);
+    this.time.delayedCall(2600, () => rain.stop());
+    this.time.delayedCall(5400, () => rain.destroy());
   }
 
   private drawRaceBar() {
@@ -1831,8 +1912,10 @@ export class RunScene extends Phaser.Scene {
     over: boolean
   ) {
     const mine = list.find((s) => s.id === this.myId);
-    if (mine) this.showRaceBanner(`🏁 ${ordinal(mine.place)} place!`);
-    else {
+    if (mine) {
+      this.showRaceBanner(`🏁 ${ordinal(mine.place)} place!`);
+      if (mine.place === 1) this.confettiRain();
+    } else {
       const latest = list[list.length - 1];
       if (latest) {
         this.floater(
@@ -1843,7 +1926,10 @@ export class RunScene extends Phaser.Scene {
         );
       }
     }
+    // once the race is over, freeze everyone — including the last-kiwi winner,
+    // who otherwise kept running after the game was already decided
     if (over) {
+      this.finished = true;
       this.game.events.emit("raceResults", { list, youId: this.myId });
     }
   }
@@ -1909,6 +1995,8 @@ export class RunScene extends Phaser.Scene {
     );
     sfx.record();
     this.feathers.explode(20, this.player.x, this.player.y - 24);
+    // snap the tape
+    this.sparks.explode(24, this.player.x + 20, this.gy(PLAYER_X) - 32);
     this.showRaceBanner("🏁 FINISH! waiting for the others…");
   }
 
@@ -1945,6 +2033,10 @@ export class RunScene extends Phaser.Scene {
     this.clearGhosts();
     this.raceBar?.clear().setVisible(false);
     this.raceBanner?.setVisible(false);
+    this.finishGfx?.destroy();
+    this.finishText?.destroy();
+    this.finishGfx = undefined;
+    this.finishText = undefined;
     this.obstacles.clear(true, true);
     this.fruits.clear(true, true);
     for (const d of this.decos) d.destroy();
