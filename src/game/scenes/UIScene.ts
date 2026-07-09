@@ -192,6 +192,14 @@ export class UIScene extends Phaser.Scene {
       this.overPanel.setVisible(false);
       showCc(true);
     });
+    // in a multiplayer race, hide the solo HUD (buddy meter, score, best) —
+    // buddies are off and the race bar tells the story
+    g.on("raceHud", (on: boolean) => {
+      const solo = !on;
+      this.helperText.setVisible(solo);
+      this.scoreText.setVisible(solo);
+      this.bestText.setVisible(solo);
+    });
 
     // name entry overlay (plain DOM so mobile keyboards behave)
     const input = document.getElementById("ne-name") as HTMLInputElement | null;

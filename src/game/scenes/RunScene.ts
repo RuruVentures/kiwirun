@@ -906,11 +906,13 @@ export class RunScene extends Phaser.Scene {
     this.game.events.emit("started");
     this.game.events.emit("score", 0);
     this.game.events.emit("fruit", 0);
-    this.game.events.emit("helper", {
-      state: "progress",
-      n: 0,
-      total: FRUIT_PER_HELPER,
-    });
+    if (!this.raceMode) {
+      this.game.events.emit("helper", {
+        state: "progress",
+        n: 0,
+        total: FRUIT_PER_HELPER,
+      });
+    }
 
     sfx.start();
     startMusic();
@@ -1763,6 +1765,7 @@ export class RunScene extends Phaser.Scene {
     this.idleTween = undefined;
     this.player.setScale(1);
     this.raceBar?.setVisible(true);
+    this.game.events.emit("raceHud", true); // hide solo HUD (buddy/score/best)
     this.resetRun();
   }
 
@@ -2025,6 +2028,7 @@ export class RunScene extends Phaser.Scene {
    */
   private teardownRace(toTitle: boolean) {
     if (!this.raceMode) return;
+    this.game.events.emit("raceHud", false); // restore the solo HUD
     this.raceMode = false;
     this.finished = false;
     this.spectating = false;
