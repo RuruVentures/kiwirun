@@ -14,7 +14,12 @@ export type RosterPlayer = {
 };
 
 export type PosUpdate = { id: string; x: number; alive: boolean };
-export type Standing = { id: string; name: string; place: number };
+export type Standing = {
+  id: string;
+  name: string;
+  place: number;
+  award?: string;
+};
 
 type Handlers = {
   roster?: (players: RosterPlayer[], youId: string, mode: RaceMode) => void;
@@ -121,8 +126,8 @@ export class RaceClient {
     this.send({ t: "setMode", mode });
   }
 
-  sendDead() {
-    this.send({ t: "dead" });
+  sendDead(fruit: number, hits: number) {
+    this.send({ t: "dead", fruit, hits });
   }
 
   /** Host-only: start the race with the course the host authored. */
@@ -134,8 +139,8 @@ export class RaceClient {
     this.send({ t: "pos", x, alive });
   }
 
-  sendFinished(elapsedMs: number) {
-    this.send({ t: "finished", elapsed: elapsedMs });
+  sendFinished(elapsedMs: number, fruit: number, hits: number) {
+    this.send({ t: "finished", elapsed: elapsedMs, fruit, hits });
   }
 
   reset() {

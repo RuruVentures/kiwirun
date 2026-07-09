@@ -35,6 +35,8 @@ export class RaceRoom extends DurableObject {
     this.finishers = []; // {id,name,elapsed} in finish order (finish mode)
     this.dead = []; // {id,name} in the order they were knocked out (last mode)
     this.racers = []; // {id,name} snapshot taken when the race starts
+    this.stats = {}; // id -> {fruit,hits}, for end-of-race awards
+    this.racing = false;
   }
 
   async fetch(request) {
@@ -117,7 +119,7 @@ export class RaceRoom extends DurableObject {
     } else if (msg.t === "start") {
       this.tryStart(ws, me, msg.course);
     } else if (msg.t === "dead") {
-      this.onDead(me);
+      this.recordDead(me.id, me.name, msg.fruit, msg.hits);
     } else if (msg.t === "pos") {
       // relay this racer's progress to everyone else
       this.broadcastExcept(ws, {
@@ -127,28 +129,12 @@ export class RaceRoom extends DurableObject {
         alive: !!msg.alive,
       });
     } else if (msg.t === "finished") {
-      if (!this.finishers.some((f) => f.id === me.id)) {
-        this.finishers.push({
-          id: me.id,
-          name: me.name,
-          elapsed: Number(msg.elapsed) || 0,
-        });
-        // rank by race time — fair regardless of who has the faster connection
-        this.finishers.sort((a, b) => a.elapsed - b.elapsed);
-        const over = this.finishers.length >= this.racers.length;
-        this.broadcast({
-          t: "standings",
-          over,
-          list: this.finishers.map((f, i) => ({
-            id: f.id,
-            name: f.name,
-            place: i + 1,
-          })),
-        });
-      }
+      this.recordFinish(me.id, me.name, msg.elapsed, msg.fruit, msg.hits);
     } else if (msg.t === "reset") {
       this.finishers = [];
       this.dead = [];
+      this.stats = {};
+      this.racing = false;
       // clear everyone's ready flag for a fresh rematch lobby
       for (const w of this.ctx.getWebSockets()) {
         const m = this.meta(w);
@@ -162,27 +148,74 @@ export class RaceRoom extends DurableObject {
     }
   }
 
+  saveStats(id, fruit, hits) {
+    this.stats[id] = { fruit: Number(fruit) || 0, hits: Number(hits) || 0 };
+  }
+
+  /** Finish-line mode: a racer crossed the line (ranked by race time). */
+  recordFinish(id, name, elapsed, fruit, hits) {
+    if (this.mode !== "finish" || !this.racing) return;
+    if (this.finishers.some((f) => f.id === id)) return;
+    this.saveStats(id, fruit, hits);
+    this.finishers.push({ id, name, elapsed: Number(elapsed) || 0 });
+    this.finishers.sort((a, b) => a.elapsed - b.elapsed);
+    const over = this.finishers.length >= this.racers.length;
+    const list = this.finishers.map((f, i) => ({
+      id: f.id,
+      name: f.name,
+      place: i + 1,
+    }));
+    this.emitStandings(list, over);
+  }
+
   /** Last-kiwi mode: a racer was knocked out. Last one standing wins. */
-  onDead(me) {
-    if (this.mode !== "last") return;
-    if (this.dead.some((d) => d.id === me.id)) return;
-    this.dead.push({ id: me.id, name: me.name });
+  recordDead(id, name, fruit, hits) {
+    if (this.mode !== "last" || !this.racing) return;
+    if (this.dead.some((d) => d.id === id)) return;
+    this.saveStats(id, fruit, hits);
+    this.dead.push({ id, name });
 
     const n = this.racers.length;
     // earlier deaths place worse: first out = last place
-    const list = this.dead.map((d, i) => ({
-      id: d.id,
-      name: d.name,
-      place: n - i,
-    }));
-    const alive = this.racers.filter(
-      (r) => !this.dead.some((d) => d.id === r.id)
-    );
+    const list = this.dead.map((d, i) => ({ id: d.id, name: d.name, place: n - i }));
+    const alive = this.racers.filter((r) => !this.dead.some((d) => d.id === r.id));
     const over = alive.length <= 1;
     if (over && alive.length === 1) {
       list.unshift({ id: alive[0].id, name: alive[0].name, place: 1 });
     }
-    this.broadcast({ t: "standings", over, list });
+    this.emitStandings(list, over);
+  }
+
+  /** Broadcast standings; on the final one, hand out fun awards to everyone. */
+  emitStandings(list, over) {
+    if (over) {
+      this.racing = false;
+      const withAward = list.map((s) => ({ ...s, award: "" }));
+      const stat = (id) => this.stats[id] ?? { fruit: 0, hits: 0 };
+      const topBy = (key) => {
+        let best = null;
+        let bestId = null;
+        for (const s of withAward) {
+          const v = stat(s.id)[key];
+          if (v > 0 && (best === null || v > best)) {
+            best = v;
+            bestId = s.id;
+          }
+        }
+        return bestId;
+      };
+      const fruitId = topBy("fruit");
+      const hitsId = topBy("hits");
+      for (const s of withAward) {
+        if (s.place === 1) s.award = "🏆 Cross Country Champion";
+        else if (s.id === fruitId) s.award = "🥝 Kiwifruit Muncher";
+        else if (s.id === hitsId) s.award = "🛡️ Bravest Kiwi";
+        else s.award = "⭐ Great Survival Instincts";
+      }
+      this.broadcast({ t: "standings", over: true, list: withAward });
+    } else {
+      this.broadcast({ t: "standings", over: false, list });
+    }
   }
 
   /** Host-only: start the race with the host-authored course once all ready. */
@@ -202,7 +235,9 @@ export class RaceRoom extends DurableObject {
     }
     this.finishers = [];
     this.dead = [];
+    this.stats = {};
     this.racers = joined.map((p) => ({ id: p.id, name: p.name }));
+    this.racing = true;
     // receipt-relative countdown carrying the shared course: the broadcast
     // reaches everyone within a few ms, so local 3-2-1 timers stay in sync
     // without trusting device clocks, and everyone races the same track
@@ -226,11 +261,29 @@ export class RaceRoom extends DurableObject {
   }
 
   async webSocketClose(ws) {
-    this.reassignHost(ws);
-    this.broadcastRoster(ws);
+    this.handleLeave(ws);
   }
 
   async webSocketError(ws) {
+    this.handleLeave(ws);
+  }
+
+  /**
+   * A socket dropped. Reassign host and update the roster — and if a race is
+   * in progress, count the leaver as done (DNF) so the finish/last-kiwi end
+   * condition can still complete for everyone else.
+   */
+  handleLeave(ws) {
+    const me = this.meta(ws);
+    if (me && this.racing && this.racers.some((r) => r.id === me.id)) {
+      if (this.mode === "finish") {
+        // DNF sorts last: a huge race time
+        this.recordFinish(me.id, me.name, 9e9, 0, 0);
+      } else {
+        this.recordDead(me.id, me.name, 0, 0);
+      }
+    }
+    this.reassignHost(ws);
     this.broadcastRoster(ws);
   }
 

@@ -342,6 +342,47 @@ body {
   border-radius: 50%;
   flex: 0 0 auto;
 }
+#results-list .r-award {
+  font-size: 12px;
+  color: #cfe8c8;
+  margin-left: auto;
+  text-align: right;
+}
+
+/* --- certificate viewer --- */
+#cert {
+  position: fixed;
+  inset: 0;
+  z-index: 37;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 12, 7, 0.85);
+  padding: 16px;
+}
+#cert.hidden {
+  display: none;
+}
+.cert-card {
+  width: min(94vw, 560px);
+  text-align: center;
+}
+#cert-img {
+  width: 100%;
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  margin-bottom: 12px;
+}
+.cert-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+}
+.cert-row .lobby-primary {
+  width: auto;
+  flex: 1;
+}
 
 /* --- leaderboard name entry overlay --- */
 #name-entry {

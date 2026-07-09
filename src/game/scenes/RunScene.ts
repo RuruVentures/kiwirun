@@ -199,6 +199,7 @@ export class RunScene extends Phaser.Scene {
   private finished = false;
   private spectating = false;
   private raceStartAt = 0;
+  private raceHits = 0;
   private stumbleUntil = 0;
   private posAccum = 0;
   private ghosts = new Map<string, Ghost>();
@@ -1687,6 +1688,7 @@ export class RunScene extends Phaser.Scene {
     this.finished = false;
     this.spectating = false;
     this.stumbleUntil = 0;
+    this.raceHits = 0;
     this.raceStartAt = this.time.now; // ≈ GO; races are timed from here
 
     this.clearGhosts();
@@ -1869,6 +1871,7 @@ export class RunScene extends Phaser.Scene {
 
   private raceStumble() {
     if (this.time.now < this.invulnUntil) return;
+    this.raceHits++;
     this.stumbleUntil = this.time.now + 1500;
     this.invulnUntil = this.stumbleUntil; // pass through the pest while tripping
     this.player.setTint(0xff8888);
@@ -1884,9 +1887,10 @@ export class RunScene extends Phaser.Scene {
   /** Last-kiwi mode: knocked out — explode, spectate the survivors on the bar. */
   private raceEliminate() {
     if (this.finished || this.time.now < this.invulnUntil) return;
+    this.raceHits++;
     this.finished = true;
     this.spectating = true;
-    this.raceClient?.sendDead();
+    this.raceClient?.sendDead(this.fruitCount, this.raceHits);
     sfx.die();
     this.cameras.main.shake(220, 0.008);
     this.feathers.explode(22, this.player.x, this.player.y - 24);
@@ -1898,7 +1902,11 @@ export class RunScene extends Phaser.Scene {
   private finishRace() {
     this.finished = true;
     this.player.clearTint();
-    this.raceClient?.sendFinished(Math.round(this.time.now - this.raceStartAt));
+    this.raceClient?.sendFinished(
+      Math.round(this.time.now - this.raceStartAt),
+      this.fruitCount,
+      this.raceHits
+    );
     sfx.record();
     this.feathers.explode(20, this.player.x, this.player.y - 24);
     this.showRaceBanner("🏁 FINISH! waiting for the others…");

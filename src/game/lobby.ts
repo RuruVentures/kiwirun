@@ -1,7 +1,14 @@
 import Phaser from "phaser";
-import { RaceClient, randomCode, checkRoom, type RosterPlayer } from "./net";
+import {
+  RaceClient,
+  randomCode,
+  checkRoom,
+  type RosterPlayer,
+  type Standing,
+} from "./net";
 import { buildCourseObjects, type Course, type RaceMode } from "./course";
 import { generateTerrain } from "./terrain";
+import { makeCertificate, shareCertificate } from "./certificate";
 
 const FINISH_PX = 12000; // ~1200 m to the finish line
 const LAST_PX = 60000; // "last kiwi" course is long enough to never run out
@@ -245,17 +252,44 @@ export function initLobby(game: Phaser.Game) {
     );
   }
 
-  // ---- results / replay
+  // ---- results / replay / certificate
   const results = $("results");
   const resultsList = $("results-list");
+  const cert = $("cert");
+  const certImg = $("cert-img") as HTMLImageElement;
+  let lastResults: Standing[] = [];
+  let myResultId = "";
+  let myCanvas: HTMLCanvasElement | undefined;
+
   $("results-again").addEventListener("click", () => {
     client?.reset(); // server broadcasts toLobby → everyone back to the room
     hide(results);
   });
 
+  $("results-cert").addEventListener("click", () => {
+    const mine = lastResults.find((s) => s.id === myResultId);
+    if (!mine) return;
+    myCanvas = makeCertificate({
+      name: mine.name,
+      award: mine.award ?? "⭐ Great Survival Instincts",
+      place: mine.place,
+      mode,
+    });
+    certImg.src = myCanvas.toDataURL("image/png");
+    show(cert);
+  });
+
+  $("cert-share").addEventListener("click", () => {
+    const mine = lastResults.find((s) => s.id === myResultId);
+    if (myCanvas) void shareCertificate(myCanvas, mine?.name ?? "Kiwi");
+  });
+  $("cert-back").addEventListener("click", () => hide(cert));
+
   game.events.on(
     "raceResults",
-    (p: { list: { id: string; name: string; place: number }[]; youId: string }) => {
+    (p: { list: Standing[]; youId: string }) => {
+      lastResults = p.list;
+      myResultId = p.youId;
       const colors = new Map(
         (client?.players ?? []).map((pl) => [pl.id, pl.color])
       );
@@ -275,9 +309,13 @@ export function initLobby(game: Phaser.Game) {
         const name = document.createElement("span");
         name.className = "r-name";
         name.textContent = s.name + (s.id === p.youId ? " (you)" : "");
-        li.append(place, dot, name);
+        const award = document.createElement("span");
+        award.className = "r-award";
+        award.textContent = s.award ?? "";
+        li.append(place, dot, name, award);
         resultsList.append(li);
       }
+      hide(cert);
       show(results);
     }
   );
@@ -285,6 +323,7 @@ export function initLobby(game: Phaser.Game) {
   // "play again": server reset → back to the lobby room (client stays live)
   game.events.on("raceReturnLobby", () => {
     hide(results);
+    hide(cert);
     open = true;
     setKeyboard(false);
     readyBox.checked = false;
@@ -299,6 +338,7 @@ export function initLobby(game: Phaser.Game) {
     client?.close();
     client = undefined;
     hide(results);
+    hide(cert);
     hide(overlay);
     open = false;
   });
